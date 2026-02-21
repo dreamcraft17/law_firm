@@ -95,12 +95,14 @@ async function handleAuth(
       user: userPayload,
     });
   }
+  if (action === 'logout' && method === 'POST') {
+    return NextResponse.json({ message: 'OK' });
+  }
   if (method !== 'POST' && action !== 'refresh') return methodNotAllowed();
   switch (action) {
     case 'otp/send':
     case 'otp/verify':
     case 'refresh':
-    case 'logout':
     case 'reset-password':
       return NextResponse.json({ message: 'Stub', action }, { status: 501 });
     default:
