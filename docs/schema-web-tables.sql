@@ -1,8 +1,9 @@
 -- Referensi DDL: tabel tambahan untuk web (RLS & soft delete diterapkan di lapisan policy).
 -- Sesuaikan dengan DB engine (contoh PostgreSQL).
+-- Pakai IF NOT EXISTS agar aman dijalankan ulang (idempotent).
 
 -- system_settings (W9)
-CREATE TABLE system_settings (
+CREATE TABLE IF NOT EXISTS system_settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   key VARCHAR(128) NOT NULL UNIQUE,
   value JSONB,
@@ -13,7 +14,7 @@ CREATE TABLE system_settings (
 );
 
 -- workflow_templates (W3)
-CREATE TABLE workflow_templates (
+CREATE TABLE IF NOT EXISTS workflow_templates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL,
   slug VARCHAR(128) NOT NULL UNIQUE,
@@ -26,7 +27,7 @@ CREATE TABLE workflow_templates (
 );
 
 -- retention_policies (W4)
-CREATE TABLE retention_policies (
+CREATE TABLE IF NOT EXISTS retention_policies (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL,
   document_type VARCHAR(64),
@@ -40,7 +41,7 @@ CREATE TABLE retention_policies (
 );
 
 -- custom_fields (W9)
-CREATE TABLE custom_fields (
+CREATE TABLE IF NOT EXISTS custom_fields (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   entity VARCHAR(64) NOT NULL,
   case_type VARCHAR(64),
@@ -55,10 +56,10 @@ CREATE TABLE custom_fields (
   deleted_at TIMESTAMPTZ
 );
 
-CREATE UNIQUE INDEX custom_fields_entity_key ON custom_fields (entity, COALESCE(case_type, ''), field_key) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS custom_fields_entity_key ON custom_fields (entity, COALESCE(case_type, ''), field_key) WHERE deleted_at IS NULL;
 
 -- case_risk_scores (W2)
-CREATE TABLE case_risk_scores (
+CREATE TABLE IF NOT EXISTS case_risk_scores (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id UUID NOT NULL REFERENCES cases(id),
   score DECIMAL(5,2) NOT NULL,
@@ -68,10 +69,10 @@ CREATE TABLE case_risk_scores (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_case_risk_scores_case_id ON case_risk_scores (case_id);
+CREATE INDEX IF NOT EXISTS idx_case_risk_scores_case_id ON case_risk_scores (case_id);
 
 -- lawyer_performance_metrics (W5/W6)
-CREATE TABLE lawyer_performance_metrics (
+CREATE TABLE IF NOT EXISTS lawyer_performance_metrics (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id),
   period_type VARCHAR(16) NOT NULL,
@@ -87,4 +88,4 @@ CREATE TABLE lawyer_performance_metrics (
   UNIQUE (user_id, period_type, period_start)
 );
 
-CREATE INDEX idx_lawyer_performance_user_period ON lawyer_performance_metrics (user_id, period_type, period_start);
+CREATE INDEX IF NOT EXISTS idx_lawyer_performance_user_period ON lawyer_performance_metrics (user_id, period_type, period_start);

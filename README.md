@@ -2,6 +2,13 @@
 
 Next.js 14 + React + TypeScript + Tailwind. Target: Partner, Admin, Finance, Management.
 
+## Relasi dengan project lain
+
+- **admin-web** (repo ini) = **panel web admin** — sisi operasional untuk mengelola users, cases, billing, dokumen, audit, dll. Panel ini memanggil API dengan prefix **`/admin/*`** (base URL lewat env `NEXT_PUBLIC_API_BASE_URL`).
+- **law_firm** = aplikasi **Flutter (mobile)** untuk pengguna/klien — memanggil API dengan prefix **`/mobile/*`** (base URL lewat `API_BASE_URL` di Flutter).
+
+Keduanya memakai **satu backend API** yang sama: endpoint **`/mobile/*`** untuk app Flutter, **`/admin/*`** untuk admin web. Jadi admin-web adalah “sisi admin” / backend-admin dari sistem yang dipakai juga oleh aplikasi Flutter law_firm (data users, cases, tasks, documents, dll. dikelola lewat panel ini).
+
 ## Modul (W1–W9)
 
 - **W1** User & Role Management — create/edit/delete user, assign role, permission, login history, force logout
