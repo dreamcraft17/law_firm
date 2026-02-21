@@ -134,10 +134,8 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         const newCase = await prisma.case.create({
           data: {
             title: body.title,
-            description: body.description,
             clientId: body.clientId,
-            status: body.status || 'OPEN',
-            priority: body.priority || 'MEDIUM',
+            status: body.status || 'open',
             // ... other fields
           }
         });
