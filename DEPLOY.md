@@ -35,7 +35,7 @@ Arsitektur deploy:
 
 1. **Connect repo** → Import project, **Root Directory** = `admin-web` (jika repo berisi banyak folder).
 2. **Environment variables** (wajib):
-   - **`DATABASE_URL`** = connection string PostgreSQL (dari Railway, bisa internal).
+   - **`DATABASE_URL`** = **harus URL PUBLIK** dari Railway (bukan `postgres.railway.internal`). Vercel tidak bisa akses host internal Railway. Di Railway: PostgreSQL → **Connect** → **Public** / **TCP Proxy** → copy connection string (host seperti `xxx.proxy.rlwy.net`). Atau set **`DATABASE_PUBLIC_URL`** = URL publik itu; kode akan pakai itu jika `DATABASE_URL` masih internal.
    - **`NEXT_PUBLIC_API_BASE_URL`** = URL app ini + `/api`, mis. `https://xxx.vercel.app/api` (agar panel memanggil API di repo yang sama).
 3. **Deploy** → Vercel akan jalankan `prisma generate && next build` lalu host Next.js (termasuk `/api/admin/*` dan `/api/mobile/*`).
 
