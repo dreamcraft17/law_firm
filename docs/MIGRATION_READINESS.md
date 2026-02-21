@@ -10,8 +10,9 @@
 |------|--------|------------|
 | Schema base | `docs/schema-base.sql` | Tabel **users** dan **cases** (idempotent). Dijalankan dulu. |
 | Schema web | `docs/schema-web-tables.sql` | Tabel admin: system_settings, workflow_templates, retention_policies, custom_fields, case_risk_scores, lawyer_performance_metrics |
-| Script migrasi | `scripts/run-web-migration.js` | Jalankan base lalu web; butuh `DATABASE_URL` dan dependency `pg` |
-| NPM script | `npm run db:migrate` | Satu perintah: buat users & cases, lalu semua tabel web |
+| Seed admin | `docs/schema-seed-admin.sql` | User admin: **admin@firm.com** / **admin123** (bcrypt). Idempotent (hanya insert jika belum ada). |
+| Script migrasi | `scripts/run-web-migration.js` | Jalankan base → web → mobile → seed admin; butuh `DATABASE_URL` dan `pg` |
+| NPM script | `npm run db:migrate` | Satu perintah: buat tabel + seed user admin |
 
 ---
 
@@ -23,7 +24,7 @@
    npm install
    npm run db:migrate
    ```
-3. Selesai. DB punya tabel **users**, **cases**, dan semua tabel web. Siap dipakai backend + admin.
+3. Selesai. DB punya tabel **users**, **cases**, tabel web + mobile, dan **user admin** (email: `admin@firm.com`, password: `admin123`). Ganti password di production.
 
 ---
 

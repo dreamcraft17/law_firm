@@ -48,6 +48,7 @@ if (databaseUrl.includes('railway.internal')) {
 const basePath = path.join(root, 'docs', 'schema-base.sql');
 const webPath = path.join(root, 'docs', 'schema-web-tables.sql');
 const mobilePath = path.join(root, 'docs', 'schema-mobile-tables.sql');
+const seedAdminPath = path.join(root, 'docs', 'schema-seed-admin.sql');
 
 if (!fs.existsSync(basePath)) {
   console.error('ERROR: File tidak ditemukan:', basePath);
@@ -59,6 +60,10 @@ if (!fs.existsSync(webPath)) {
 }
 if (!fs.existsSync(mobilePath)) {
   console.error('ERROR: File tidak ditemukan:', mobilePath);
+  process.exit(1);
+}
+if (!fs.existsSync(seedAdminPath)) {
+  console.error('ERROR: File tidak ditemukan:', seedAdminPath);
   process.exit(1);
 }
 
@@ -80,6 +85,10 @@ async function run() {
     const mobileSql = fs.readFileSync(mobilePath, 'utf8');
     await client.query(mobileSql);
     console.log('OK: schema-mobile-tables.sql selesai.');
+
+    const seedAdminSql = fs.readFileSync(seedAdminPath, 'utf8');
+    await client.query(seedAdminSql);
+    console.log('OK: schema-seed-admin.sql (user admin@firm.com) selesai.');
 
     console.log('Migrasi selesai. DB siap deploy.');
   } catch (err) {
