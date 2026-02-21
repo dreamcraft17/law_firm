@@ -1,0 +1,6 @@
+# Ignore local build artifacts (Vercel builds in cloud)
+.next
+node_modules
+deploy
+*.log
+.env*.local
