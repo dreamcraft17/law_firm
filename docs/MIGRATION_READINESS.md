@@ -1,6 +1,6 @@
 # Kesiapan Migrasi Database (admin-web)
 
-## Status: **siap migrasi tabel web** — DDL idempotent + script runner tersedia
+## Status: **ready deploy** — satu perintah buat base + tabel web
 
 ---
 
@@ -8,49 +8,30 @@
 
 | Item | Lokasi | Keterangan |
 |------|--------|------------|
-| Strategi DB | `docs/DATABASE_STRATEGY.md` | Satu DB, RLS, soft delete, daftar tabel web |
-| DDL tabel web | `docs/schema-web-tables.sql` | PostgreSQL, pakai `IF NOT EXISTS` (aman dijalankan ulang). Tabel: `system_settings`, `workflow_templates`, `retention_policies`, `custom_fields`, `case_risk_scores`, `lawyer_performance_metrics` |
-| Script migrasi | `scripts/run-web-migration.js` | Jalankan DDL ke DB; butuh env `DATABASE_URL` dan dependency `pg` |
-| NPM script | `npm run db:migrate` | Menjalankan script migrasi di atas |
-| Env contoh | `.env.example` | `DATABASE_URL` untuk backend / untuk script migrasi |
+| Schema base | `docs/schema-base.sql` | Tabel **users** dan **cases** (idempotent). Dijalankan dulu. |
+| Schema web | `docs/schema-web-tables.sql` | Tabel admin: system_settings, workflow_templates, retention_policies, custom_fields, case_risk_scores, lawyer_performance_metrics |
+| Script migrasi | `scripts/run-web-migration.js` | Jalankan base lalu web; butuh `DATABASE_URL` dan dependency `pg` |
+| NPM script | `npm run db:migrate` | Satu perintah: buat users & cases, lalu semua tabel web |
 
 ---
 
-## Yang perlu sebelum migrasi
+## Cara jalankan migrasi (ready deploy)
 
-1. **Tabel inti**  
-   DDL web punya FK ke `cases(id)` dan `users(id)`. Tabel **`users`** dan **`cases`** harus sudah ada di DB (dari backend / migrasi inti). Kalau belum, jalankan migrasi inti dulu, baru `db:migrate`.
-
-2. **Backend API**  
-   admin-web hanya frontend; koneksi DB dipakai oleh **backend API**. `DATABASE_URL` dipakai di backend. Script `db:migrate` di repo ini hanya untuk menjalankan DDL tabel web (sekali jalan atau saat setup).
-
----
-
-## Cara jalankan migrasi (tabel web)
-
-1. Pasang dependency: `npm install` (termasuk `pg`).
-2. Set `DATABASE_URL` (dari Railway atau env lain), mis.  
-   `set DATABASE_URL=postgresql://user:pass@host:5432/railway` (Windows) atau  
-   `export DATABASE_URL=postgresql://...` (Linux/macOS).
-3. Jalankan:  
-   `npm run db:migrate`  
-   Script akan menjalankan `docs/schema-web-tables.sql` ke DB. DDL pakai `IF NOT EXISTS`, jadi aman dijalankan ulang.
+1. Set **DATABASE_URL** di `.env.local` (pakai Public URL dari Railway).
+2. Di folder `admin-web`:
+   ```bash
+   npm install
+   npm run db:migrate
+   ```
+3. Selesai. DB punya tabel **users**, **cases**, dan semua tabel web. Siap dipakai backend + admin.
 
 ---
 
-## Checklist sebelum jalankan migrasi (tabel web)
+## Checklist deploy
 
-- [ ] PostgreSQL sudah jalan (mis. Railway / VPS).
-- [ ] Tabel inti **users** dan **cases** sudah ada (dari backend/migrasi lain).
-- [ ] `DATABASE_URL` sudah diset.
-- [ ] Sudah `npm install` (agar `pg` terpasang).
-- [ ] Jalankan `npm run db:migrate`.
+- [ ] PostgreSQL jalan (Railway / VPS) dan **DATABASE_URL** (Public URL) di `.env.local`.
+- [ ] `npm install` lalu `npm run db:migrate`.
+- [ ] Backend API set **DATABASE_URL** ke URL yang sama (internal atau public sesuai deploy).
+- [ ] Admin-web (Vercel) set **NEXT_PUBLIC_API_BASE_URL** ke URL backend.
 
----
-
-## Ringkasan
-
-- **Dokumentasi & DDL:** siap (strategy + schema idempotent).
-- **Runner:** siap — `npm run db:migrate` setelah tabel inti ada dan `DATABASE_URL` diset.
-
-Setelah migrasi web dijalankan, DB siap dipakai backend untuk fitur admin (W2–W9).
+Semua DDL pakai `IF NOT EXISTS`, jadi aman dijalankan ulang.

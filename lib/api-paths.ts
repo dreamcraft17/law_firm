@@ -1,11 +1,13 @@
 /**
  * Admin Web API path grouping.
  * Semua request admin web memakai prefix /admin/<group>/*
- * Base URL diset via env NEXT_PUBLIC_API_BASE_URL
+ * Base URL: NEXT_PUBLIC_API_BASE_URL. Kalau kosong = backend di repo ini → pakai /api.
  */
-
+const envBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
 export const apiBaseUrl =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? 'https://api.example-firm.com';
+  envBase && envBase.length > 0
+    ? envBase.replace(/\/$/, '')
+    : (typeof window !== 'undefined' ? window.location.origin : '') + '/api';
 
 /** Admin API path groups */
 export const ApiPaths = {

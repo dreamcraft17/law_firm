@@ -1,0 +1,194 @@
+// Prisma schema — satu DB untuk admin-web + mobile (law_firm Flutter)
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Base (auth + cases) ---
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @db.VarChar(255)
+  name         String?   @db.VarChar(255)
+  role         String    @default("staff") @db.VarChar(64)
+  passwordHash String?   @map("password_hash") @db.VarChar(255)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  casesAsClient Case[]              @relation("CaseClient")
+  lawyerMetrics LawyerPerformanceMetric[]
+
+  @@map("users")
+}
+
+model Case {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title     String   @db.VarChar(500)
+  status    String   @default("open") @db.VarChar(64)
+  clientId  String?  @map("client_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  client   User?   @relation("CaseClient", fields: [clientId], references: [id])
+  riskScores CaseRiskScore[]
+
+  @@map("cases")
+}
+
+// --- Mobile: tasks, documents, events, invoices, notifications ---
+model Task {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId    String?  @map("case_id") @db.Uuid
+  title     String   @db.VarChar(500)
+  status    String   @default("pending") @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("tasks")
+}
+
+model Document {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId    String?  @map("case_id") @db.Uuid
+  name      String   @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("documents")
+}
+
+model Event {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title     String   @db.VarChar(500)
+  startAt   DateTime @map("start_at") @db.Timestamptz(6)
+  endAt     DateTime? @map("end_at") @db.Timestamptz(6)
+  type      String?  @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("events")
+}
+
+model Invoice {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  status    String   @default("draft") @db.VarChar(64)
+  amount    Decimal  @default(0) @db.Decimal(18, 2)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("invoices")
+}
+
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?   @map("user_id") @db.Uuid
+  title     String    @db.VarChar(500)
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("notifications")
+}
+
+// --- Web-only tables ---
+model SystemSetting {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key         String   @unique @db.VarChar(128)
+  value       Json?    @db.JsonB
+  category    String   @db.VarChar(64)
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("system_settings")
+}
+
+model WorkflowTemplate {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(255)
+  slug      String   @unique @db.VarChar(128)
+  caseType  String?  @map("case_type") @db.VarChar(64)
+  steps     Json     @default("[]") @db.JsonB
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("workflow_templates")
+}
+
+model RetentionPolicy {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @db.VarChar(255)
+  documentType String?  @map("document_type") @db.VarChar(64)
+  caseStatus   String?  @map("case_status") @db.VarChar(64)
+  retainYears  Int      @map("retain_years")
+  actionAfter  String   @map("action_after") @db.VarChar(32)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("retention_policies")
+}
+
+model CustomField {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entity     String   @db.VarChar(64)
+  caseType   String?  @map("case_type") @db.VarChar(64)
+  fieldKey   String   @map("field_key") @db.VarChar(128)
+  label      String   @db.VarChar(255)
+  fieldType  String   @map("field_type") @db.VarChar(32)
+  options    Json?    @db.JsonB
+  isRequired Boolean  @default(false) @map("is_required")
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("custom_fields")
+}
+
+model CaseRiskScore {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId      String   @map("case_id") @db.Uuid
+  score       Decimal  @db.Decimal(5, 2)
+  factors     Json?    @db.JsonB
+  calculatedAt DateTime @default(now()) @map("calculated_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  case Case @relation(fields: [caseId], references: [id])
+
+  @@map("case_risk_scores")
+}
+
+model LawyerPerformanceMetric {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String   @map("user_id") @db.Uuid
+  periodType           String   @map("period_type") @db.VarChar(16)
+  periodStart          DateTime @map("period_start") @db.Date
+  periodEnd            DateTime @map("period_end") @db.Date
+  casesClosed          Int      @default(0) @map("cases_closed")
+  revenueBilled        Decimal  @default(0) @map("revenue_billed") @db.Decimal(18, 2)
+  revenueCollected     Decimal  @default(0) @map("revenue_collected") @db.Decimal(18, 2)
+  utilizationPct       Decimal? @map("utilization_pct") @db.Decimal(5, 2)
+  avgCaseDurationDays  Int?     @map("avg_case_duration_days")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, periodType, periodStart])
+  @@map("lawyer_performance_metrics")
+}

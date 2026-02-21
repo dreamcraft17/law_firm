@@ -4,10 +4,10 @@ Next.js 14 + React + TypeScript + Tailwind. Target: Partner, Admin, Finance, Man
 
 ## Relasi dengan project lain
 
-- **admin-web** (repo ini) = **panel web admin** — sisi operasional untuk mengelola users, cases, billing, dokumen, audit, dll. Panel ini memanggil API dengan prefix **`/admin/*`** (base URL lewat env `NEXT_PUBLIC_API_BASE_URL`).
-- **law_firm** = aplikasi **Flutter (mobile)** untuk pengguna/klien — memanggil API dengan prefix **`/mobile/*`** (base URL lewat `API_BASE_URL` di Flutter).
+- **admin-web** (repo ini) = **panel admin** + **backend API** (Next.js + Prisma). Panel memanggil **`/api/admin/*`**; app Flutter memanggil **`/api/mobile/*`**. Satu deploy (mis. Vercel) melayani keduanya.
+- **law_firm** = aplikasi **Flutter (mobile)** — set `API_BASE_URL` ke URL deploy admin-web + `/api` (mis. `https://xxx.vercel.app/api`).
 
-Keduanya memakai **satu backend API** yang sama: endpoint **`/mobile/*`** untuk app Flutter, **`/admin/*`** untuk admin web. Jadi admin-web adalah “sisi admin” / backend-admin dari sistem yang dipakai juga oleh aplikasi Flutter law_firm (data users, cases, tasks, documents, dll. dikelola lewat panel ini).
+Backend ada di repo ini: route **`/api/admin/*`** dan **`/api/mobile/*`**, Prisma ke PostgreSQL (mis. Railway).
 
 ## Modul (W1–W9)
 
@@ -47,5 +47,5 @@ Endpoint backend untuk admin web memakai prefix `/admin/<group>/*`:
 | audit     | `/admin/audit/*`   | W7 Audit & Compliance |
 
 - Path & helper: `lib/api-paths.ts` (`ApiPaths`, `adminEndpoints`).
-- Base URL: env `NEXT_PUBLIC_API_BASE_URL` (default: `https://api.example-firm.com`).
+- Base URL: env `NEXT_PUBLIC_API_BASE_URL`. Kosong = pakai same-origin **`/api`** (backend di repo ini).
 - Client: `lib/api-client.ts` → `adminFetch(path, options)`; token dari `localStorage.admin_token`.
