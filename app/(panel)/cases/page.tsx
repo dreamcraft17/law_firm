@@ -8,13 +8,15 @@ import { Pencil, Trash2, FolderPlus } from 'lucide-react';
 type CaseItem = {
   id: string;
   title: string;
+  caseNumber?: string | null;
+  description?: string | null;
   status: string;
   clientId: string | null;
   createdAt: string;
   client?: { id: string; email: string; name: string | null } | null;
 };
 
-const STATUSES = ['open', 'in_progress', 'closed', 'archived'] as const;
+const STATUSES = ['pending', 'aktif'] as const;
 
 export default function CasesPage() {
   const [list, setList] = useState<CaseItem[]>([]);
@@ -24,7 +26,10 @@ export default function CasesPage() {
   const [editing, setEditing] = useState<CaseItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [formTitle, setFormTitle] = useState('');
-  const [formStatus, setFormStatus] = useState<string>('open');
+  const [formCaseNumber, setFormCaseNumber] = useState('');
+  const [formClientName, setFormClientName] = useState('');
+  const [formDescription, setFormDescription] = useState('');
+  const [formStatus, setFormStatus] = useState<string>('pending');
   const [deleteConfirm, setDeleteConfirm] = useState<CaseItem | null>(null);
 
   const fetchCases = async () => {
@@ -50,13 +55,19 @@ export default function CasesPage() {
   const openAdd = () => {
     setEditing(null);
     setFormTitle('');
-    setFormStatus('open');
+    setFormCaseNumber('');
+    setFormClientName('');
+    setFormDescription('');
+    setFormStatus('pending');
     setModalOpen(true);
   };
 
   const openEdit = (c: CaseItem) => {
     setEditing(c);
     setFormTitle(c.title);
+    setFormCaseNumber(c.caseNumber || '');
+    setFormClientName(c.client?.name || '');
+    setFormDescription(c.description || '');
     setFormStatus(c.status);
     setModalOpen(true);
   };
@@ -68,7 +79,12 @@ export default function CasesPage() {
       if (editing) {
         const res = await adminFetch(adminEndpoints.caseUpdate(editing.id), {
           method: 'PUT',
-          body: JSON.stringify({ title: formTitle.trim(), status: formStatus }),
+          body: JSON.stringify({ 
+            title: formTitle.trim(), 
+            caseNumber: formCaseNumber.trim(),
+            description: formDescription.trim(),
+            status: formStatus 
+          }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -77,7 +93,13 @@ export default function CasesPage() {
       } else {
         const res = await adminFetch(adminEndpoints.caseCreate(), {
           method: 'POST',
-          body: JSON.stringify({ title: formTitle.trim(), status: formStatus }),
+          body: JSON.stringify({ 
+            title: formTitle.trim(), 
+            caseNumber: formCaseNumber.trim(),
+            client_name: formClientName.trim(),
+            description: formDescription.trim(),
+            status: formStatus 
+          }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -139,6 +161,7 @@ export default function CasesPage() {
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Judul</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-700">Nomor Perkara</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Status</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Klien</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Aksi</th>
@@ -148,9 +171,14 @@ export default function CasesPage() {
                 {list.map((c) => (
                   <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50/50">
                     <td className="py-3 px-4 text-gray-900">{c.title}</td>
+                    <td className="py-3 px-4 text-gray-600">{c.caseNumber || '-'}</td>
                     <td className="py-3 px-4">
-                      <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-gray-700">
-                        {c.status}
+                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                        c.status === 'aktif' 
+                          ? 'bg-green-100 text-green-700' 
+                          : 'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {c.status === 'aktif' ? 'Aktif' : 'Pending'}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-gray-600">
@@ -194,7 +222,7 @@ export default function CasesPage() {
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Judul</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Judul Perkara</label>
                 <input
                   type="text"
                   value={formTitle}
@@ -203,20 +231,67 @@ export default function CasesPage() {
                   required
                 />
               </div>
+              
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select
-                  value={formStatus}
-                  onChange={(e) => setFormStatus(e.target.value)}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Klien</label>
+                <input
+                  type="text"
+                  value={formClientName}
+                  onChange={(e) => setFormClientName(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                >
-                  {STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Nama klien"
+                />
               </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nomor Perkara</label>
+                <input
+                  type="text"
+                  value={formCaseNumber}
+                  onChange={(e) => setFormCaseNumber(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="Nomor perkara (opsional)"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status Awal</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormStatus('aktif')}
+                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+                      formStatus === 'aktif'
+                        ? 'bg-[#1B4965] text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    Aktif
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormStatus('pending')}
+                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+                      formStatus === 'pending'
+                        ? 'bg-[#1B4965] text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    Pending
+                  </button>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
+                <textarea
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 h-24 resize-none"
+                  placeholder="Opsional - ringkasan singkat perkara ini..."
+                />
+              </div>
+              
               <div className="flex gap-2 pt-2">
                 <button
                   type="submit"

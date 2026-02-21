@@ -172,8 +172,10 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         const newCase = await prisma.case.create({
           data: {
             title: body.title,
+            caseNumber: body.caseNumber || body.case_number || null,
+            description: body.description || null,
             clientId: clientId,
-            status: body.status || 'open',
+            status: body.status || 'pending',
           },
           include: {
             client: true
@@ -199,8 +201,10 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       // Return template for new case
       return NextResponse.json({
         title: '',
+        caseNumber: '',
+        description: '',
         clientId: null,
-        status: 'open'
+        status: 'pending'
       });
     }
     return methodNotAllowed();
@@ -246,6 +250,8 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           where: { id },
           data: {
             title: body.title,
+            caseNumber: body.caseNumber || body.case_number,
+            description: body.description,
             status: body.status,
             clientId: body.clientId,
           }

@@ -28,13 +28,15 @@ model User {
 }
 
 model Case {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  title     String   @db.VarChar(500)
-  status    String   @default("open") @db.VarChar(64)
-  clientId  String?  @map("client_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String   @db.VarChar(500)
+  caseNumber  String?  @map("case_number") @db.VarChar(100)
+  description String?  @db.Text
+  status      String   @default("pending") @db.VarChar(64)
+  clientId    String?  @map("client_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   client   User?   @relation("CaseClient", fields: [clientId], references: [id])
   riskScores CaseRiskScore[]
