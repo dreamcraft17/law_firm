@@ -2,6 +2,8 @@
  * Handler untuk /api/mobile/* — dipakai app Flutter (law_firm).
  * Path: mobile/auth/login, mobile/cases, mobile/tasks, dll.
  */
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -50,21 +52,57 @@ export async function handleMobile(
 async function handleAuth(
   rest: string[],
   method: string,
-  _request: NextRequest
+  request: NextRequest
 ): Promise<NextResponse> {
   const [action] = rest;
+  if (action === 'login' && method === 'POST') {
+    let body: { email?: string; password?: string } = {};
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    const email = body.email?.trim()?.toLowerCase();
+    const password = body.password;
+    if (!email || !password) {
+      return NextResponse.json({ error: 'email dan password wajib' }, { status: 400 });
+    }
+    const user = await prisma.user.findFirst({
+      where: { email, deletedAt: null },
+    });
+    if (!user) {
+      return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
+    }
+    if (!user.passwordHash) {
+      return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
+    }
+    const ok = await bcrypt.compare(password, user.passwordHash);
+    if (!ok) {
+      return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
+    }
+    const token = `mobile_${crypto.randomBytes(24).toString('hex')}`;
+    const refreshToken = `mobile_refresh_${crypto.randomBytes(24).toString('hex')}`;
+    const userPayload = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      phone: null as string | null,
+    };
+    return NextResponse.json({
+      access_token: token,
+      refresh_token: refreshToken,
+      user: userPayload,
+    });
+  }
   if (method !== 'POST' && action !== 'refresh') return methodNotAllowed();
   switch (action) {
-    case 'login':
     case 'otp/send':
     case 'otp/verify':
     case 'refresh':
     case 'logout':
     case 'reset-password':
-      return NextResponse.json({
-        message: 'Stub: implement auth with JWT/session',
-        action,
-      });
+      return NextResponse.json({ message: 'Stub', action }, { status: 501 });
     default:
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
