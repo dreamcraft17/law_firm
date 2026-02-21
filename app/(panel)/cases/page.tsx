@@ -8,6 +8,8 @@ import { Pencil, Trash2, FolderPlus } from 'lucide-react';
 type CaseItem = {
   id: string;
   title: string;
+  caseNumber?: string | null;
+  description?: string | null;
   status: string;
   clientId: string | null;
   createdAt: string;
@@ -24,7 +26,9 @@ export default function CasesPage() {
   const [editing, setEditing] = useState<CaseItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [formTitle, setFormTitle] = useState('');
+  const [formCaseNumber, setFormCaseNumber] = useState('');
   const [formClientName, setFormClientName] = useState('');
+  const [formDescription, setFormDescription] = useState('');
   const [formStatus, setFormStatus] = useState<string>('pending');
   const [deleteConfirm, setDeleteConfirm] = useState<CaseItem | null>(null);
 
@@ -51,7 +55,9 @@ export default function CasesPage() {
   const openAdd = () => {
     setEditing(null);
     setFormTitle('');
+    setFormCaseNumber('');
     setFormClientName('');
+    setFormDescription('');
     setFormStatus('pending');
     setModalOpen(true);
   };
@@ -59,7 +65,9 @@ export default function CasesPage() {
   const openEdit = (c: CaseItem) => {
     setEditing(c);
     setFormTitle(c.title);
+    setFormCaseNumber(c.caseNumber || '');
     setFormClientName(c.client?.name || '');
+    setFormDescription(c.description || '');
     setFormStatus(c.status);
     setModalOpen(true);
   };
@@ -73,6 +81,8 @@ export default function CasesPage() {
           method: 'PUT',
           body: JSON.stringify({ 
             title: formTitle.trim(), 
+            caseNumber: formCaseNumber.trim(),
+            description: formDescription.trim(),
             status: formStatus 
           }),
         });
@@ -85,7 +95,9 @@ export default function CasesPage() {
           method: 'POST',
           body: JSON.stringify({ 
             title: formTitle.trim(), 
+            caseNumber: formCaseNumber.trim(),
             client_name: formClientName.trim(),
+            description: formDescription.trim(),
             status: formStatus 
           }),
         });
@@ -149,6 +161,7 @@ export default function CasesPage() {
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Judul</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-700">Nomor Perkara</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Status</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Klien</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Aksi</th>
@@ -158,6 +171,7 @@ export default function CasesPage() {
                 {list.map((c) => (
                   <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50/50">
                     <td className="py-3 px-4 text-gray-900">{c.title}</td>
+                    <td className="py-3 px-4 text-gray-600">{c.caseNumber || '-'}</td>
                     <td className="py-3 px-4">
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
                         c.status === 'aktif' 
@@ -230,6 +244,17 @@ export default function CasesPage() {
               </div>
               
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nomor Perkara</label>
+                <input
+                  type="text"
+                  value={formCaseNumber}
+                  onChange={(e) => setFormCaseNumber(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="Nomor perkara (opsional)"
+                />
+              </div>
+              
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Status Awal</label>
                 <div className="flex gap-2">
                   <button
@@ -255,6 +280,16 @@ export default function CasesPage() {
                     Pending
                   </button>
                 </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
+                <textarea
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 h-24 resize-none"
+                  placeholder="Opsional - ringkasan singkat perkara ini..."
+                />
               </div>
               
               <div className="flex gap-2 pt-2">
