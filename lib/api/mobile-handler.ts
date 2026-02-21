@@ -113,32 +113,67 @@ async function handleAuth(
 async function handleCases(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
   const id = rest[0];
   
-  // Handle /cases/new endpoint
-  if (id === 'new') {
+  // Handle /cases endpoint (no ID)
+  if (!id) {
     if (method === 'GET') {
-      // Return empty/new case template for creating a new case
-      return NextResponse.json({
-        id: 'new',
-        title: '',
-        description: '',
-        clientId: null,
-        status: 'OPEN',
-        priority: 'MEDIUM',
-        // Add other default fields as needed
-      });
+      // List all cases
+      try {
+        const list = await prisma.case.findMany({
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'desc' },
+          take: 100,
+        });
+        return NextResponse.json({ data: list });
+      } catch (error) {
+        console.error('Error fetching cases:', error);
+        return NextResponse.json(
+          { error: 'Database error' },
+          { status: 500 }
+        );
+      }
     }
+    
     if (method === 'POST') {
-      // Handle creating a new case
+      // CREATE new case
       try {
         const body = await request.json();
+        
+        // Validate required fields
+        if (!body.title) {
+          return NextResponse.json(
+            { error: 'Title is required' },
+            { status: 400 }
+          );
+        }
+
+        // Handle client lookup/creation by name
+        let clientId = body.clientId;
+        if (body.client_name && !clientId) {
+          // Find or create client by name
+          const client = await prisma.client.upsert({
+            where: { name: body.client_name },
+            update: {},
+            create: { name: body.client_name }
+          });
+          clientId = client.id;
+        }
+
+        // Create the case
         const newCase = await prisma.case.create({
           data: {
             title: body.title,
-            clientId: body.clientId,
-            status: body.status || 'open',
-            // ... other fields
+            description: body.description || '',
+            caseNumber: body.case_number || '',
+            status: body.status || 'OPEN',
+            priority: body.priority || 'MEDIUM',
+            clientId: clientId,
+            // Add other fields as needed
+          },
+          include: {
+            client: true
           }
         });
+
         return NextResponse.json(newCase, { status: 201 });
       } catch (error) {
         console.error('Error creating case:', error);
@@ -148,17 +183,39 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         );
       }
     }
+    
+    return methodNotAllowed(); // For other methods like PUT, DELETE at /cases
   }
   
-  // Existing logic for specific case ID
+  // Handle /cases/new special endpoint
+  if (id === 'new') {
+    if (method === 'GET') {
+      // Return template for new case
+      return NextResponse.json({
+        title: '',
+        description: '',
+        client_name: '',
+        case_number: '',
+        status: 'OPEN',
+        priority: 'MEDIUM'
+      });
+    }
+    return methodNotAllowed();
+  }
+  
+  // Handle /cases/{id} with specific ID
   if (id && rest[1]) {
     const sub = rest[1];
     if (sub === 'timeline' || sub === 'team') {
       const data = await prisma.case.findUnique({ where: { id } });
-      return NextResponse.json(data ? { data: [] } : { error: 'Not found' }, { status: data ? 200 : 404 });
+      return NextResponse.json(
+        data ? { data: [] } : { error: 'Not found' },
+        { status: data ? 200 : 404 }
+      );
     }
   }
   
+  // Handle /cases/{id} - GET specific case
   if (id) {
     if (method === 'GET') {
       try {
@@ -166,7 +223,9 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           where: { id, deletedAt: null },
           include: { client: true },
         });
-        return c ? NextResponse.json(c) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+        return c 
+          ? NextResponse.json(c) 
+          : NextResponse.json({ error: 'Not found' }, { status: 404 });
       } catch (error) {
         console.error('Error fetching case:', error);
         return NextResponse.json(
@@ -175,24 +234,49 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         );
       }
     }
-    return methodNotAllowed();
-  }
-  
-  if (method === 'GET') {
-    try {
-      const list = await prisma.case.findMany({
-        where: { deletedAt: null },
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-      });
-      return NextResponse.json({ data: list });
-    } catch (error) {
-      console.error('Error fetching cases:', error);
-      return NextResponse.json(
-        { error: 'Database error' },
-        { status: 500 }
-      );
+    
+    // Handle UPDATE at /cases/{id}
+    if (method === 'PUT' || method === 'PATCH') {
+      try {
+        const body = await request.json();
+        const updatedCase = await prisma.case.update({
+          where: { id },
+          data: {
+            title: body.title,
+            description: body.description,
+            status: body.status,
+            priority: body.priority,
+            // ... other fields
+          }
+        });
+        return NextResponse.json(updatedCase);
+      } catch (error) {
+        console.error('Error updating case:', error);
+        return NextResponse.json(
+          { error: 'Failed to update case' },
+          { status: 500 }
+        );
+      }
     }
+    
+    // Handle DELETE at /cases/{id}
+    if (method === 'DELETE') {
+      try {
+        await prisma.case.update({
+          where: { id },
+          data: { deletedAt: new Date() }
+        });
+        return NextResponse.json({ message: 'Case deleted' });
+      } catch (error) {
+        console.error('Error deleting case:', error);
+        return NextResponse.json(
+          { error: 'Failed to delete case' },
+          { status: 500 }
+        );
+      }
+    }
+    
+    return methodNotAllowed();
   }
   
   return methodNotAllowed();
