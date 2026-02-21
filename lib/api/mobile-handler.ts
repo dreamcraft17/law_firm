@@ -150,11 +150,21 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         let clientId = body.clientId;
         if (body.client_name && !clientId) {
           // Find or create client by name
-          const client = await prisma.client.upsert({
-            where: { name: body.client_name },
-            update: {},
-            create: { name: body.client_name }
+          // First try to find by name
+          let client = await prisma.user.findFirst({
+            where: { name: body.client_name }
           });
+          
+          // If not found, create new client
+          if (!client) {
+            client = await prisma.user.create({
+              data: { 
+                name: body.client_name,
+                email: `${body.client_name.toLowerCase().replace(/\s+/g, '.')}.${Date.now()}@client.local`,
+                role: 'staff' // Using existing role from schema
+              }
+            });
+          }
           clientId = client.id;
         }
 
@@ -162,12 +172,8 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         const newCase = await prisma.case.create({
           data: {
             title: body.title,
-            description: body.description || '',
-            caseNumber: body.case_number || '',
-            status: body.status || 'OPEN',
-            priority: body.priority || 'MEDIUM',
             clientId: clientId,
-            // Add other fields as needed
+            status: body.status || 'open',
           },
           include: {
             client: true
@@ -193,11 +199,8 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       // Return template for new case
       return NextResponse.json({
         title: '',
-        description: '',
-        client_name: '',
-        case_number: '',
-        status: 'OPEN',
-        priority: 'MEDIUM'
+        clientId: null,
+        status: 'open'
       });
     }
     return methodNotAllowed();
@@ -243,10 +246,8 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           where: { id },
           data: {
             title: body.title,
-            description: body.description,
             status: body.status,
-            priority: body.priority,
-            // ... other fields
+            clientId: body.clientId,
           }
         });
         return NextResponse.json(updatedCase);
