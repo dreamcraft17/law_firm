@@ -110,8 +110,49 @@ async function handleAuth(
   }
 }
 
-async function handleCases(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
+async function handleCases(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
   const id = rest[0];
+  
+  // Handle /cases/new endpoint
+  if (id === 'new') {
+    if (method === 'GET') {
+      // Return empty/new case template for creating a new case
+      return NextResponse.json({
+        id: 'new',
+        title: '',
+        description: '',
+        clientId: null,
+        status: 'OPEN',
+        priority: 'MEDIUM',
+        // Add other default fields as needed
+      });
+    }
+    if (method === 'POST') {
+      // Handle creating a new case
+      try {
+        const body = await request.json();
+        const newCase = await prisma.case.create({
+          data: {
+            title: body.title,
+            description: body.description,
+            clientId: body.clientId,
+            status: body.status || 'OPEN',
+            priority: body.priority || 'MEDIUM',
+            // ... other fields
+          }
+        });
+        return NextResponse.json(newCase, { status: 201 });
+      } catch (error) {
+        console.error('Error creating case:', error);
+        return NextResponse.json(
+          { error: 'Failed to create case' },
+          { status: 500 }
+        );
+      }
+    }
+  }
+  
+  // Existing logic for specific case ID
   if (id && rest[1]) {
     const sub = rest[1];
     if (sub === 'timeline' || sub === 'team') {
@@ -119,24 +160,43 @@ async function handleCases(rest: string[], method: string, _request: NextRequest
       return NextResponse.json(data ? { data: [] } : { error: 'Not found' }, { status: data ? 200 : 404 });
     }
   }
+  
   if (id) {
     if (method === 'GET') {
-      const c = await prisma.case.findFirst({
-        where: { id, deletedAt: null },
-        include: { client: true },
-      });
-      return c ? NextResponse.json(c) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+      try {
+        const c = await prisma.case.findFirst({
+          where: { id, deletedAt: null },
+          include: { client: true },
+        });
+        return c ? NextResponse.json(c) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+      } catch (error) {
+        console.error('Error fetching case:', error);
+        return NextResponse.json(
+          { error: 'Database error' },
+          { status: 500 }
+        );
+      }
     }
     return methodNotAllowed();
   }
+  
   if (method === 'GET') {
-    const list = await prisma.case.findMany({
-      where: { deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
-    return NextResponse.json({ data: list });
+    try {
+      const list = await prisma.case.findMany({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+      return NextResponse.json({ data: list });
+    } catch (error) {
+      console.error('Error fetching cases:', error);
+      return NextResponse.json(
+        { error: 'Database error' },
+        { status: 500 }
+      );
+    }
   }
+  
   return methodNotAllowed();
 }
 
