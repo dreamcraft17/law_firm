@@ -324,7 +324,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
   return methodNotAllowed();
 }
 
-async function handleTasks(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
+async function handleTasks(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
   const id = rest[0];
   if (id) {
     if (method === 'GET') {
