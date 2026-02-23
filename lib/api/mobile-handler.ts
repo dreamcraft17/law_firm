@@ -99,16 +99,39 @@ async function handleAuth(
   if (action === 'logout' && method === 'POST') {
     return NextResponse.json({ message: 'OK' });
   }
-  if (method !== 'POST' && action !== 'refresh') return methodNotAllowed();
-  switch (action) {
-    case 'otp/send':
-    case 'otp/verify':
-    case 'refresh':
-    case 'reset-password':
-      return NextResponse.json({ message: 'Stub', action }, { status: 501 });
-    default:
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (action === 'refresh' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const refresh = body.refresh_token;
+    if (!refresh) return NextResponse.json({ error: 'refresh_token required' }, { status: 400 });
+    return NextResponse.json({
+      access_token: `mobile_${crypto.randomBytes(24).toString('hex')}`,
+      refresh_token: refresh,
+    });
   }
+  if (action === 'otp/send' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const email = body.email ?? body.phone;
+    if (!email) return NextResponse.json({ error: 'email or phone required' }, { status: 400 });
+    return NextResponse.json({ message: 'OTP sent', sentTo: email });
+  }
+  if (action === 'otp/verify' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    if (!body.otp) return NextResponse.json({ error: 'otp required' }, { status: 400 });
+    const user = await prisma.user.findFirst({ where: { deletedAt: null }, take: 1 });
+    if (!user) return NextResponse.json({ error: 'No user' }, { status: 401 });
+    const token = `mobile_${crypto.randomBytes(24).toString('hex')}`;
+    return NextResponse.json({
+      access_token: token,
+      refresh_token: `mobile_refresh_${crypto.randomBytes(24).toString('hex')}`,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role, phone: null },
+    });
+  }
+  if (action === 'reset-password' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    if (!body.email) return NextResponse.json({ error: 'email required' }, { status: 400 });
+    return NextResponse.json({ message: 'Reset link sent to email' });
+  }
+  return NextResponse.json({ error: 'Not found' }, { status: 404 });
 }
 
 async function handleCases(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
@@ -309,7 +332,16 @@ async function handleTasks(rest: string[], method: string, _request: NextRequest
       return t ? NextResponse.json(t) : NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
     if (rest[1] === 'status' && method === 'PATCH') {
-      return NextResponse.json({ message: 'Stub: update task status' });
+      try {
+        const body = await request.json().catch(() => ({}));
+        const status = body.status ?? 'pending';
+        const t = await prisma.task.findFirst({ where: { id, deletedAt: null } });
+        if (!t) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        const updated = await prisma.task.update({ where: { id }, data: { status: String(status) } });
+        return NextResponse.json(updated);
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed' }, { status: 500 });
+      }
     }
     return methodNotAllowed();
   }
@@ -372,7 +404,12 @@ async function handleInvoices(rest: string[], method: string, _request: NextRequ
       const i = await prisma.invoice.findFirst({ where: { id, deletedAt: null } });
       return i ? NextResponse.json(i) : NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    if (rest[1] === 'pay' && method === 'POST') return NextResponse.json({ message: 'Stub: pay' });
+    if (rest[1] === 'pay' && method === 'POST') {
+      const inv = await prisma.invoice.findFirst({ where: { id, deletedAt: null } });
+      if (!inv) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const updated = await prisma.invoice.update({ where: { id }, data: { status: 'paid' } });
+      return NextResponse.json(updated);
+    }
     return methodNotAllowed();
   }
   if (method === 'GET') {
@@ -400,7 +437,10 @@ async function handleDashboard(_rest: string[], method: string, _request: NextRe
 async function handleNotifications(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
   const id = rest[0];
   if (id && rest[1] === 'read' && method === 'POST') {
-    return NextResponse.json({ message: 'Stub: mark read' });
+    const n = await prisma.notification.findFirst({ where: { id } });
+    if (!n) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    await prisma.notification.update({ where: { id }, data: { readAt: new Date() } });
+    return NextResponse.json({ message: 'OK' });
   }
   if (method === 'GET') {
     const list = await prisma.notification.findMany({ take: 50, orderBy: { createdAt: 'desc' } });
@@ -410,7 +450,8 @@ async function handleNotifications(rest: string[], method: string, _request: Nex
 }
 
 async function handleMessages(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
-  return NextResponse.json({ data: [], message: 'Stub: messages (add messages table if needed)' });
+  if (method === 'GET') return NextResponse.json({ data: [] });
+  return methodNotAllowed();
 }
 
 function methodNotAllowed() {

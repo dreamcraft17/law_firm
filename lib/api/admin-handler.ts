@@ -31,6 +31,8 @@ export async function handleAdmin(
         return handleCases(rest, method, request);
       case 'documents':
         return handleDocuments(rest, method, request);
+      case 'tasks':
+        return handleTasks(rest, method, request);
       case 'billing':
         return handleBilling(rest, method, request);
       case 'reports':
@@ -125,7 +127,14 @@ async function handleUsers(rest: string[], method: string, request: NextRequest)
 }
 
 async function handleRoles(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
-  return NextResponse.json({ data: [], message: 'Stub: roles (add roles table if needed)' });
+  if (method !== 'GET') return methodNotAllowed();
+  const roles = await prisma.user.findMany({
+    where: { deletedAt: null },
+    select: { role: true },
+    distinct: ['role'],
+    orderBy: { role: 'asc' },
+  });
+  return NextResponse.json({ data: roles.map((r) => ({ id: r.role, name: r.role })) });
 }
 
 /** Resolve clientId dari client_name (find or create) untuk case create/update. */
@@ -177,16 +186,35 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         data,
         include: { client: true },
       });
+      await prisma.auditLog.create({ data: { action: 'update', entity: 'case', entityId: id, details: { title: c.title } } }).catch(() => {});
       return NextResponse.json(normalizeCaseForResponse(c));
     }
     if (method === 'DELETE') {
       const existing = await prisma.case.findFirst({ where: { id, deletedAt: null } });
       if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       await prisma.case.update({ where: { id }, data: { deletedAt: new Date() } });
+      await prisma.auditLog.create({ data: { action: 'delete', entity: 'case', entityId: id, details: { title: existing.title } } }).catch(() => {});
       return NextResponse.json({ message: 'OK' });
     }
     if (rest[1] === 'team' && method === 'POST') return NextResponse.json({ message: 'OK' });
-    if (rest[1] === 'export' && method === 'GET') return NextResponse.json({ message: 'Stub: export' });
+    if (rest[1] === 'export' && method === 'GET') {
+      const c = await prisma.case.findFirst({
+        where: { id, deletedAt: null },
+        include: { client: true },
+      });
+      if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const accept = request.headers.get('accept') ?? '';
+      if (accept.includes('text/csv')) {
+        const rows = [
+          ['id', 'title', 'case_number', 'status', 'client_name', 'description', 'created_at'].join(','),
+          [c.id, `"${(c.title ?? '').replace(/"/g, '""')}"`, c.caseNumber ?? '', c.status, `"${(c.client?.name ?? '').replace(/"/g, '""')}"`, `"${(c.description ?? '').replace(/"/g, '""')}"`, c.createdAt.toISOString()].join(','),
+        ];
+        return new NextResponse(rows.join('\n'), {
+          headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="case-${id}.csv"` },
+        });
+      }
+      return NextResponse.json(normalizeCaseForResponse(c));
+    }
     return methodNotAllowed();
   }
   if (rest[0] === 'conflict-check' && method === 'POST') return NextResponse.json({ data: {} });
@@ -226,12 +254,72 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       },
       include: { client: true },
     });
+    await prisma.auditLog.create({ data: { action: 'create', entity: 'case', entityId: c.id, details: { title: c.title } } }).catch(() => {});
     return NextResponse.json(normalizeCaseForResponse(c), { status: 201 });
   }
   return methodNotAllowed();
 }
 
-async function handleDocuments(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
+async function handleTasks(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  if (rest[0] === 'case' && rest[1] && method === 'GET') {
+    const list = await prisma.task.findMany({
+      where: { caseId: rest[1], deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    return NextResponse.json({ data: list });
+  }
+  const id = rest[0];
+  if (id) {
+    if (method === 'GET') {
+      const t = await prisma.task.findFirst({ where: { id, deletedAt: null } });
+      return t ? NextResponse.json(t) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    if (method === 'PUT' || method === 'PATCH') {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const data: { title?: string; status?: string; caseId?: string | null } = {};
+        if (body.title !== undefined) data.title = body.title;
+        if (body.status !== undefined) data.status = body.status;
+        if (body.caseId !== undefined) data.caseId = body.caseId ?? null;
+        const t = await prisma.task.update({ where: { id }, data });
+        return NextResponse.json(t);
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+      }
+    }
+    if (method === 'DELETE') {
+      const t = await prisma.task.findFirst({ where: { id, deletedAt: null } });
+      if (!t) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      await prisma.task.update({ where: { id }, data: { deletedAt: new Date() } });
+      return NextResponse.json({ message: 'OK' });
+    }
+    return methodNotAllowed();
+  }
+  if (method === 'GET') {
+    const list = await prisma.task.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    return NextResponse.json({ data: list });
+  }
+  if (method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      if (!body.title) return NextResponse.json({ error: 'title required' }, { status: 400 });
+      const t = await prisma.task.create({
+        data: { title: body.title, status: body.status ?? 'pending', caseId: body.caseId ?? null },
+      });
+      return NextResponse.json(t, { status: 201 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+  return methodNotAllowed();
+}
+
+async function handleDocuments(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
   const id = rest[0];
   if (id && method === 'GET') {
     const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
@@ -241,7 +329,24 @@ async function handleDocuments(rest: string[], method: string, _request: NextReq
     const list = await prisma.document.findMany({ where: { caseId: rest[1], deletedAt: null } });
     return NextResponse.json({ data: list });
   }
-  if (rest[0] === 'bulk-upload' && method === 'POST') return NextResponse.json({ message: 'Stub: bulk upload' });
+  if (rest[0] === 'bulk-upload' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const items = Array.isArray(body.documents) ? body.documents : Array.isArray(body) ? body : [];
+      if (items.length === 0) return NextResponse.json({ error: 'documents array required' }, { status: 400 });
+      const caseId = body.caseId ?? items[0]?.caseId ?? null;
+      const created = await prisma.$transaction(
+        items.map((d: { name: string; caseId?: string }) =>
+          prisma.document.create({
+            data: { name: String(d.name ?? 'Unnamed'), caseId: d.caseId ?? caseId },
+          })
+        )
+      );
+      return NextResponse.json({ data: created, count: created.length }, { status: 201 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
   if (method === 'GET') {
     const list = await prisma.document.findMany({ where: { deletedAt: null }, take: 100 });
     return NextResponse.json({ data: list });
@@ -249,32 +354,106 @@ async function handleDocuments(rest: string[], method: string, _request: NextReq
   return methodNotAllowed();
 }
 
-async function handleBilling(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
-  if (rest[0] === 'invoices' && method === 'GET') {
-    const list = await prisma.invoice.findMany({ where: { deletedAt: null }, take: 100 });
-    return NextResponse.json({ data: list });
+async function handleBilling(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  if ((!rest[0] || rest[0] === 'invoices') && method === 'GET' && !rest[1]) {
+    const list = await prisma.invoice.findMany({ where: { deletedAt: null }, take: 100, orderBy: { createdAt: 'desc' } });
+    const agg = await prisma.invoice.aggregate({ where: { deletedAt: null }, _sum: { amount: true }, _count: true });
+    return NextResponse.json({
+      data: list,
+      summary: { totalInvoices: agg._count, totalAmount: Number(agg._sum.amount ?? 0) },
+    });
   }
-  if (rest[0] === 'invoices' && rest[1] && method === 'GET') {
+  if (rest[0] === 'invoices' && rest[1] && !rest[2] && method === 'GET') {
     const i = await prisma.invoice.findFirst({ where: { id: rest[1], deletedAt: null } });
     return i ? NextResponse.json(i) : NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
-  return NextResponse.json({ data: [], message: 'Stub: billing' });
+  if (rest[0] === 'invoices' && rest[1] && rest[2] === 'approve' && method === 'POST') {
+    const inv = await prisma.invoice.findFirst({ where: { id: rest[1], deletedAt: null } });
+    if (!inv) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const updated = await prisma.invoice.update({ where: { id: rest[1] }, data: { status: 'approved' } });
+    return NextResponse.json(updated);
+  }
+  if (rest[0] === 'invoices' && !rest[1] && method === 'POST') {
+    try {
+      const body = await request.json();
+      const amount = Number(body.amount) || 0;
+      const inv = await prisma.invoice.create({
+        data: { status: body.status ?? 'draft', amount },
+      });
+      return NextResponse.json(inv, { status: 201 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+  return methodNotAllowed();
 }
 
 async function handleReports(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
-  return NextResponse.json({ summary: {}, message: 'Stub: reports' });
+  if (method !== 'GET') return methodNotAllowed();
+  const [caseCount, closedCases, userCount, invoiceAgg, tasksCount] = await Promise.all([
+    prisma.case.count({ where: { deletedAt: null } }),
+    prisma.case.count({ where: { deletedAt: null, status: 'closed' } }),
+    prisma.user.count({ where: { deletedAt: null } }),
+    prisma.invoice.aggregate({ where: { deletedAt: null }, _sum: { amount: true }, _count: true }),
+    prisma.task.count({ where: { deletedAt: null } }),
+  ]);
+  const activeCases = caseCount - closedCases;
+  return NextResponse.json({
+    summary: {
+      totalCases: caseCount,
+      activeCases,
+      closedCases,
+      totalUsers: userCount,
+      totalInvoices: invoiceAgg._count,
+      totalRevenue: Number(invoiceAgg._sum.amount ?? 0),
+      totalTasks: tasksCount,
+    },
+    data: [],
+  });
 }
 
-async function handleSettings(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
+async function handleSettings(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
   if (method === 'GET') {
-    const list = await prisma.systemSetting.findMany({ take: 200 });
+    const list = await prisma.systemSetting.findMany({ take: 200, orderBy: { category: 'asc' } });
     return NextResponse.json({ data: list });
   }
-  return NextResponse.json({ message: 'Stub: settings' });
+  if (method === 'PUT' || method === 'PATCH') {
+    try {
+      const body = await request.json();
+      const key = body.key ?? rest[0];
+      if (!key) return NextResponse.json({ error: 'key required' }, { status: 400 });
+      const existing = await prisma.systemSetting.findUnique({ where: { key } });
+      const value = body.value !== undefined ? body.value : undefined;
+      const category = body.category ?? existing?.category ?? 'general';
+      const updated = existing
+        ? await prisma.systemSetting.update({ where: { key }, data: { value, category, description: body.description ?? existing.description } })
+        : await prisma.systemSetting.create({ data: { key, value, category, description: body.description ?? null } });
+      return NextResponse.json(updated);
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+  return methodNotAllowed();
 }
 
-async function handleAudit(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
-  return NextResponse.json({ data: [], message: 'Stub: audit (add audit_logs table if needed)' });
+async function handleAudit(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  if (method !== 'GET') return methodNotAllowed();
+  try {
+    const { searchParams } = new URL(request.url);
+    const userFilter = searchParams.get('user');
+    const caseFilter = searchParams.get('case');
+    const list = await prisma.auditLog.findMany({
+      where: {
+        ...(userFilter && { userId: userFilter }),
+        ...(caseFilter && { entityId: caseFilter, entity: 'case' }),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    return NextResponse.json({ data: list });
+  } catch {
+    return NextResponse.json({ data: [] });
+  }
 }
 
 function methodNotAllowed() {

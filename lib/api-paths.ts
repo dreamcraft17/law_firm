@@ -23,6 +23,9 @@ export const ApiPaths = {
   /** /admin/documents/* */
   documents: 'admin/documents',
 
+  /** /admin/tasks/* */
+  tasks: 'admin/tasks',
+
   /** /admin/billing/* */
   billing: 'admin/billing',
 
@@ -67,6 +70,14 @@ export const adminEndpoints = {
   documentDetail: (id: string) => `${ApiPaths.documents}/${id}`,
   documentsByCase: (caseId: string) => `${ApiPaths.documents}/case/${caseId}`,
   documentBulkUpload: () => `${ApiPaths.documents}/bulk-upload`,
+
+  // Tasks (W3)
+  tasksList: () => ApiPaths.tasks,
+  taskDetail: (id: string) => `${ApiPaths.tasks}/${id}`,
+  taskCreate: () => ApiPaths.tasks,
+  taskUpdate: (id: string) => `${ApiPaths.tasks}/${id}`,
+  taskDelete: (id: string) => `${ApiPaths.tasks}/${id}`,
+  tasksByCase: (caseId: string) => `${ApiPaths.tasks}/case/${caseId}`,
 
   // Billing (W5)
   billingInvoices: () => `${ApiPaths.billing}/invoices`,
