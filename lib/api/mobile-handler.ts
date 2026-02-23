@@ -6,6 +6,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
 
 export async function handleMobile(
   pathSegments: string[],
@@ -116,14 +117,14 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
   // Handle /cases endpoint (no ID)
   if (!id) {
     if (method === 'GET') {
-      // List all cases
       try {
         const list = await prisma.case.findMany({
           where: { deletedAt: null },
           orderBy: { createdAt: 'desc' },
           take: 100,
+          include: { client: true },
         });
-        return NextResponse.json({ data: list });
+        return NextResponse.json({ data: normalizeCaseListForResponse(list) });
       } catch (error) {
         console.error('Error fetching cases:', error);
         return NextResponse.json(
@@ -177,12 +178,10 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
             clientId: clientId,
             status: body.status || 'pending',
           },
-          include: {
-            client: true
-          }
+          include: { client: true },
         });
 
-        return NextResponse.json(newCase, { status: 201 });
+        return NextResponse.json(normalizeCaseForResponse(newCase), { status: 201 });
       } catch (error) {
         console.error('Error creating case:', error);
         return NextResponse.json(
@@ -230,9 +229,8 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           where: { id, deletedAt: null },
           include: { client: true },
         });
-        return c 
-          ? NextResponse.json(c) 
-          : NextResponse.json({ error: 'Not found' }, { status: 404 });
+        if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        return NextResponse.json(normalizeCaseForResponse(c));
       } catch (error) {
         console.error('Error fetching case:', error);
         return NextResponse.json(
@@ -241,22 +239,36 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         );
       }
     }
-    
-    // Handle UPDATE at /cases/{id}
+
     if (method === 'PUT' || method === 'PATCH') {
       try {
         const body = await request.json();
+        let clientId: string | null | undefined = body.clientId;
+        if (body.client_name && clientId == null) {
+          let client = await prisma.user.findFirst({ where: { name: body.client_name, deletedAt: null } });
+          if (!client) {
+            client = await prisma.user.create({
+              data: {
+                name: body.client_name,
+                email: `${String(body.client_name).toLowerCase().replace(/\s+/g, '.')}.${Date.now()}@client.local`,
+                role: 'client',
+              },
+            });
+          }
+          clientId = client.id;
+        }
+        const updateData: { title?: string; caseNumber?: string | null; description?: string | null; status?: string; clientId?: string | null } = {};
+        if (body.title !== undefined) updateData.title = body.title;
+        if (body.caseNumber !== undefined || body.case_number !== undefined) updateData.caseNumber = body.caseNumber ?? body.case_number ?? null;
+        if (body.description !== undefined) updateData.description = body.description;
+        if (body.status !== undefined) updateData.status = body.status;
+        if (clientId !== undefined) updateData.clientId = clientId;
         const updatedCase = await prisma.case.update({
           where: { id },
-          data: {
-            title: body.title,
-            caseNumber: body.caseNumber || body.case_number,
-            description: body.description,
-            status: body.status,
-            clientId: body.clientId,
-          }
+          data: updateData,
+          include: { client: true },
         });
-        return NextResponse.json(updatedCase);
+        return NextResponse.json(normalizeCaseForResponse(updatedCase));
       } catch (error) {
         console.error('Error updating case:', error);
         return NextResponse.json(

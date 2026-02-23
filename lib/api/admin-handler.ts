@@ -5,6 +5,7 @@
 import bcrypt from 'bcrypt';
 import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
 
 const SALT_ROUNDS = 10;
 
@@ -127,6 +128,24 @@ async function handleRoles(rest: string[], method: string, _request: NextRequest
   return NextResponse.json({ data: [], message: 'Stub: roles (add roles table if needed)' });
 }
 
+/** Resolve clientId dari client_name (find or create) untuk case create/update. */
+async function resolveClientId(body: { clientId?: string | null; client_name?: string }): Promise<string | null> {
+  if (body.clientId) return body.clientId;
+  const name = body.client_name?.trim();
+  if (!name) return null;
+  let client = await prisma.user.findFirst({ where: { name, deletedAt: null } });
+  if (!client) {
+    client = await prisma.user.create({
+      data: {
+        name,
+        email: `${name.toLowerCase().replace(/\s+/g, '.')}.${Date.now()}@client.local`,
+        role: 'client',
+      },
+    });
+  }
+  return client.id;
+}
+
 async function handleCases(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
   const id = rest[0];
   if (id) {
@@ -135,10 +154,11 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         where: { id, deletedAt: null },
         include: { client: true },
       });
-      return c ? NextResponse.json(c) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+      if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      return NextResponse.json(normalizeCaseForResponse(c));
     }
     if (method === 'PUT' || method === 'PATCH') {
-      let body: { title?: string; status?: string; clientId?: string | null } = {};
+      let body: { title?: string; status?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null } = {};
       try {
         body = await request.json();
       } catch {
@@ -146,12 +166,18 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       }
       const existing = await prisma.case.findFirst({ where: { id, deletedAt: null } });
       if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      const data: { title?: string; status?: string; clientId?: string | null } = {};
-      if (body.title !== undefined) data.title = body.title;
+      const data: { title?: string; status?: string; clientId?: string | null; caseNumber?: string | null; description?: string | null } = {};
+      if (body.title !== undefined) data.title = body.title.trim();
       if (body.status !== undefined) data.status = body.status;
-      if (body.clientId !== undefined) data.clientId = body.clientId || null;
-      const c = await prisma.case.update({ where: { id }, data });
-      return NextResponse.json(c);
+      if (body.clientId !== undefined || body.client_name !== undefined) data.clientId = await resolveClientId(body);
+      if (body.caseNumber !== undefined || body.case_number !== undefined) data.caseNumber = (body.caseNumber ?? body.case_number)?.trim() || null;
+      if (body.description !== undefined) data.description = body.description?.trim() || null;
+      const c = await prisma.case.update({
+        where: { id },
+        data,
+        include: { client: true },
+      });
+      return NextResponse.json(normalizeCaseForResponse(c));
     }
     if (method === 'DELETE') {
       const existing = await prisma.case.findFirst({ where: { id, deletedAt: null } });
@@ -171,24 +197,36 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       take: 500,
       include: { client: true },
     });
-    return NextResponse.json({ data: list });
+    return NextResponse.json({ data: normalizeCaseListForResponse(list) });
   }
   if (method === 'POST') {
-    let body: { title: string; status?: string; clientId?: string | null } = { title: '' };
+    let body: {
+      title: string;
+      status?: string;
+      clientId?: string | null;
+      client_name?: string;
+      caseNumber?: string;
+      case_number?: string;
+      description?: string | null;
+    } = { title: '' };
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
     if (!body.title?.trim()) return NextResponse.json({ error: 'title required' }, { status: 400 });
+    const clientId = await resolveClientId(body);
     const c = await prisma.case.create({
       data: {
         title: body.title.trim(),
         status: body.status?.trim() ?? 'open',
-        clientId: body.clientId ?? null,
+        clientId,
+        caseNumber: (body.caseNumber ?? body.case_number)?.trim() || null,
+        description: body.description?.trim() || null,
       },
+      include: { client: true },
     });
-    return NextResponse.json(c, { status: 201 });
+    return NextResponse.json(normalizeCaseForResponse(c), { status: 201 });
   }
   return methodNotAllowed();
 }
