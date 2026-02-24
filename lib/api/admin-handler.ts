@@ -1,11 +1,13 @@
 /**
  * Handler untuk /api/admin/* — dipakai panel admin-web.
  * Path: admin/users, admin/cases, admin/documents, dll.
+ * R0.1: Auth + permission check; token/session memuat roleId + permissions.
  */
 import bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthFromRequest, createSession, getPermissionsForUser, requirePermission, type AuthUser } from '@/lib/auth-helper';
 import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
 
 const SALT_ROUNDS = 10;
@@ -13,6 +15,29 @@ const SALT_ROUNDS = 10;
 function omitPassword<T extends { passwordHash?: string | null }>(u: T): Omit<T, 'passwordHash'> {
   const { passwordHash: _, ...rest } = u;
   return rest;
+}
+
+function getRequiredPermission(group: string, method: string, rest: string[]): string | null {
+  const id = rest[0];
+  if (group === 'auth') return null;
+  const map: Record<string, string> = {
+    users: method === 'GET' ? 'users.view' : method === 'POST' ? 'users.create' : 'users.update',
+    roles: method === 'GET' ? 'roles.view' : 'roles.manage',
+    permissions: 'roles.view',
+    clients: method === 'GET' ? 'cases.view' : method === 'POST' ? 'cases.create' : 'cases.update',
+    cases: method === 'GET' ? 'cases.view' : method === 'POST' ? 'cases.create' : 'cases.update',
+    documents: method === 'GET' ? 'documents.view' : 'documents.create',
+    tasks: method === 'GET' ? 'tasks.view' : 'tasks.create',
+    'time-entries': 'tasks.view',
+    expenses: 'cases.view',
+    'rate-cards': 'billing.view',
+    billing: method === 'GET' ? 'billing.view' : 'billing.create',
+    reports: 'reports.view',
+    settings: method === 'GET' ? 'settings.view' : 'settings.update',
+    audit: 'audit.view',
+    'knowledge-base': 'settings.view',
+  };
+  return map[group] ?? null;
 }
 
 export async function handleAdmin(
@@ -23,11 +48,30 @@ export async function handleAdmin(
   const [group, ...rest] = pathSegments;
 
   try {
+    if (group === 'auth' && rest[0] === 'login' && method === 'POST') {
+      return handleAdminAuthLogin(request);
+    }
+
+    const auth = await getAuthFromRequest(request, 'admin');
+    if (!auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const perm = getRequiredPermission(group, method, rest);
+    if (perm) {
+      try {
+        requirePermission(auth, perm);
+      } catch (res) {
+        return res as NextResponse;
+      }
+    }
+
     switch (group) {
       case 'users':
         return handleUsers(rest, method, request);
       case 'roles':
         return handleRoles(rest, method, request);
+      case 'permissions':
+        return handlePermissions(rest, method, request);
       case 'clients':
         return handleClients(rest, method, request);
       case 'cases':
@@ -75,7 +119,7 @@ async function handleUsers(rest: string[], method: string, request: NextRequest)
       return u ? NextResponse.json(omitPassword(u)) : NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
     if (method === 'PUT' || method === 'PATCH') {
-      let body: { name?: string; role?: string; password?: string } = {};
+      let body: { name?: string; role?: string; roleId?: string | null; password?: string } = {};
       try {
         body = await request.json();
       } catch {
@@ -83,9 +127,10 @@ async function handleUsers(rest: string[], method: string, request: NextRequest)
       }
       const existing = await prisma.user.findFirst({ where: { id, deletedAt: null } });
       if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      const data: { name?: string; role?: string; passwordHash?: string } = {};
+      const data: { name?: string; role?: string; roleId?: string | null; passwordHash?: string } = {};
       if (body.name !== undefined) data.name = body.name;
       if (body.role !== undefined) data.role = body.role;
+      if (body.roleId !== undefined) data.roleId = body.roleId || null;
       if (body.password != null && body.password !== '') {
         data.passwordHash = await bcrypt.hash(body.password, SALT_ROUNDS);
       }
@@ -141,6 +186,7 @@ async function handleUsers(rest: string[], method: string, request: NextRequest)
         email: body.email.trim().toLowerCase(),
         name: body.name?.trim() ?? null,
         role: body.role?.trim() ?? 'staff',
+        roleId: body.roleId ?? null,
         passwordHash,
       },
     });
@@ -149,15 +195,113 @@ async function handleUsers(rest: string[], method: string, request: NextRequest)
   return methodNotAllowed();
 }
 
-async function handleRoles(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
-  if (method !== 'GET') return methodNotAllowed();
-  const roles = await prisma.user.findMany({
-    where: { deletedAt: null },
-    select: { role: true },
-    distinct: ['role'],
-    orderBy: { role: 'asc' },
+async function handleAdminAuthLogin(request: NextRequest): Promise<NextResponse> {
+  let body: { email?: string; password?: string } = {};
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+  const email = body.email?.trim()?.toLowerCase();
+  const password = body.password;
+  if (!email || !password) {
+    return NextResponse.json({ error: 'email dan password wajib' }, { status: 400 });
+  }
+  const user = await prisma.user.findFirst({
+    where: { email, deletedAt: null },
+    include: { roleRef: { include: { permissions: { include: { permission: true } } } } },
   });
-  return NextResponse.json({ data: roles.map((r) => ({ id: r.role, name: r.role })) });
+  if (!user || !user.passwordHash) {
+    return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
+  }
+  const ok = await bcrypt.compare(password, user.passwordHash);
+  if (!ok) {
+    await prisma.auditLog.create({ data: { userId: user.id, action: 'login_failed', entity: 'user', entityId: user.id, details: { email: user.email } } }).catch(() => {});
+    return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
+  }
+  await prisma.auditLog.create({ data: { userId: user.id, action: 'login', entity: 'user', entityId: user.id, details: { email: user.email } } }).catch(() => {});
+  const token = await createSession(user.id, 'admin');
+  const permissions = user.roleRef?.permissions?.map((rp) => rp.permission.key) ?? [];
+  return NextResponse.json({
+    access_token: token,
+    user: omitPassword(user),
+    roleId: user.roleId ?? null,
+    permissions,
+  });
+}
+
+async function handlePermissions(rest: string[], method: string): Promise<NextResponse> {
+  if (method !== 'GET') return methodNotAllowed();
+  const list = await prisma.permission.findMany({ orderBy: { key: 'asc' } });
+  return NextResponse.json({ data: list });
+}
+
+async function handleRoles(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const id = rest[0];
+  if (id && rest[1] === 'permissions' && (method === 'PUT' || method === 'PATCH')) {
+    const roleId = id;
+    let body: { permissionIds?: string[] } = {};
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    const role = await prisma.role.findUnique({ where: { id: roleId } });
+    if (!role) return NextResponse.json({ error: 'Role not found' }, { status: 404 });
+    const permissionIds = Array.isArray(body.permissionIds) ? body.permissionIds : [];
+    await prisma.rolePermission.deleteMany({ where: { roleId } });
+    if (permissionIds.length > 0) {
+      await prisma.rolePermission.createMany({
+        data: permissionIds.map((permissionId) => ({ roleId, permissionId })),
+        skipDuplicates: true,
+      });
+    }
+    const updated = await prisma.role.findUnique({
+      where: { id: roleId },
+      include: { permissions: { include: { permission: true } } },
+    });
+    return NextResponse.json(updated);
+  }
+  if (id) {
+    if (method === 'GET') {
+      const role = await prisma.role.findUnique({
+        where: { id },
+        include: { permissions: { include: { permission: true } } },
+      });
+      return role ? NextResponse.json(role) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    if (method === 'PUT' || method === 'PATCH') {
+      const body = await request.json().catch(() => ({}));
+      const name = (body.name as string)?.trim();
+      if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 });
+      const existing = await prisma.role.findFirst({ where: { id } });
+      if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const updated = await prisma.role.update({ where: { id }, data: { name } });
+      return NextResponse.json(updated);
+    }
+    if (method === 'DELETE') {
+      const existing = await prisma.role.findUnique({ where: { id } });
+      if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      await prisma.role.delete({ where: { id } });
+      return NextResponse.json({ message: 'OK' });
+    }
+    return methodNotAllowed();
+  }
+  if (method === 'GET') {
+    const roles = await prisma.role.findMany({
+      orderBy: { name: 'asc' },
+      include: { _count: { select: { permissions: true, users: true } } },
+    });
+    return NextResponse.json({ data: roles });
+  }
+  if (method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const name = (body.name as string)?.trim();
+    if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 });
+    const created = await prisma.role.create({ data: { name } });
+    return NextResponse.json(created, { status: 201 });
+  }
+  return methodNotAllowed();
 }
 
 // --- M1: Client Management ---

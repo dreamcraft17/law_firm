@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Users,
+  Shield,
   Briefcase,
   ListTodo,
   FolderOpen,
@@ -19,6 +20,7 @@ import {
 const nav = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/users', label: 'User & Role', icon: Users },
+  { href: '/roles', label: 'Roles & Permissions', icon: Shield },
   { href: '/cases', label: 'Case Management', icon: Briefcase },
   { href: '/tasks', label: 'Task Workflow', icon: ListTodo },
   { href: '/documents', label: 'Dokumen', icon: FolderOpen },

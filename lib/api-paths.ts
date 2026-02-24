@@ -50,6 +50,12 @@ export const ApiPaths = {
   /** /admin/audit/* */
   audit: 'admin/audit',
 
+  /** /admin/auth/* (login) */
+  auth: 'admin/auth',
+
+  /** /admin/permissions (GET list) */
+  permissions: 'admin/permissions',
+
   /** /admin/knowledge-base/* (W8) */
   knowledgeBase: 'admin/knowledge-base',
 } as const;
@@ -65,10 +71,14 @@ export const adminEndpoints = {
   userLoginHistory: (id: string) => `${ApiPaths.users}/${id}/login-history`,
   userForceLogout: (id: string) => `${ApiPaths.users}/${id}/force-logout`,
 
-  // Roles
+  // Auth (R0.1)
+  authLogin: () => `${ApiPaths.auth}/login`,
+
+  // Roles & Permissions
   rolesList: () => ApiPaths.roles,
   roleDetail: (id: string) => `${ApiPaths.roles}/${id}`,
   rolePermissions: (id: string) => `${ApiPaths.roles}/${id}/permissions`,
+  permissionsList: () => ApiPaths.permissions,
 
   // Clients (M1)
   clientsList: () => ApiPaths.clients,

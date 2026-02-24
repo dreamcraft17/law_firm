@@ -10,21 +10,76 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// --- R0: RBAC ---
+model Role {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @unique @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key         String   @unique @db.VarChar(128)
+  description String?  @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// --- Session for token validation (admin + mobile) ---
+model Session {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique @db.VarChar(255)
+  source    String   @default("mobile") @db.VarChar(32)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
 // --- Base (auth + cases) ---
 model User {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email        String    @db.VarChar(255)
   name         String?   @db.VarChar(255)
   role         String    @default("staff") @db.VarChar(64)
+  roleId       String?   @map("role_id") @db.Uuid
+  clientId     String?   @map("client_id") @db.Uuid
   passwordHash String?   @map("password_hash") @db.VarChar(255)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
 
+  roleRef     Role?     @relation(fields: [roleId], references: [id])
+  clientRef   Client?   @relation(fields: [clientId], references: [id])
   lawyerMetrics LawyerPerformanceMetric[]
   timeEntries   TimeEntry[]
   rateCards     RateCard[]
   caseTeams     CaseTeamMember[]
+  sessions      Session[]
 
   @@map("users")
 }
@@ -42,9 +97,10 @@ model Client {
   updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  contacts ClientContact[]
-  cases    Case[]
-  invoices Invoice[]
+  contacts   ClientContact[]
+  cases      Case[]
+  invoices   Invoice[]
+  users      User[]
 
   @@map("clients")
 }

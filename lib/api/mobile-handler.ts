@@ -1,11 +1,13 @@
 /**
  * Handler untuk /api/mobile/* — dipakai app Flutter (law_firm).
  * Path: mobile/auth/login, mobile/cases, mobile/tasks, dll.
+ * R0: Login return roleId + permissions; R0.2: Row-level case access (team/client).
  */
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthFromRequest, createSession } from '@/lib/auth-helper';
 import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
 
 export async function handleMobile(
@@ -89,19 +91,28 @@ async function handleAuth(
       return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
     }
     await prisma.auditLog.create({ data: { userId: user.id, action: 'login', entity: 'user', entityId: user.id, details: { email: user.email } } }).catch(() => {});
-    const token = `mobile_${crypto.randomBytes(24).toString('hex')}`;
+    const token = await createSession(user.id, 'mobile');
     const refreshToken = `mobile_refresh_${crypto.randomBytes(24).toString('hex')}`;
+    const userWithRole = await prisma.user.findFirst({
+      where: { id: user.id },
+      include: { roleRef: { include: { permissions: { include: { permission: true } } } } },
+    });
+    const permissions = userWithRole?.roleRef?.permissions?.map((rp) => rp.permission.key) ?? [];
     const userPayload = {
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
+      roleId: user.roleId ?? null,
+      clientId: user.clientId ?? null,
       phone: null as string | null,
     };
     return NextResponse.json({
       access_token: token,
       refresh_token: refreshToken,
       user: userPayload,
+      roleId: user.roleId ?? null,
+      permissions,
     });
   }
   if (action === 'logout' && method === 'POST') {
@@ -259,15 +270,39 @@ async function handleMobileExpenses(rest: string[], method: string, request: Nex
   return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
 }
 
+function caseAccessWhere(auth: { userId: string; clientId: string | null; isAdmin: boolean }): Record<string, unknown> {
+  if (auth.isAdmin) return {};
+  if (auth.clientId) return { clientId: auth.clientId };
+  return { teamMembers: { some: { userId: auth.userId } } };
+}
+
+async function canAccessCase(caseId: string, auth: { userId: string; clientId: string | null; isAdmin: boolean }): Promise<boolean> {
+  if (auth.isAdmin) return true;
+  const c = await prisma.case.findFirst({
+    where: { id: caseId, deletedAt: null },
+    select: { clientId: true, id: true },
+  });
+  if (!c) return false;
+  if (auth.clientId && c.clientId === auth.clientId) return true;
+  const inTeam = await prisma.caseTeamMember.findFirst({ where: { caseId, userId: auth.userId } });
+  return !!inTeam;
+}
+
 async function handleCases(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const auth = await getAuthFromRequest(request, 'mobile');
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const id = rest[0];
-  
+  const baseWhere = { deletedAt: null, ...caseAccessWhere(auth) };
+
   // Handle /cases endpoint (no ID)
   if (!id) {
     if (method === 'GET') {
       try {
         const list = await prisma.case.findMany({
-          where: { deletedAt: null },
+          where: baseWhere,
           orderBy: { createdAt: 'desc' },
           take: 100,
           include: { client: true },
@@ -361,10 +396,12 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
     }
   }
   
-  // Handle /cases/{id} - GET specific case
+  // Handle /cases/{id} - GET specific case (R0.2: 403 if not team/client/admin)
   if (id) {
     if (method === 'GET') {
       try {
+        const allowed = await canAccessCase(id, auth);
+        if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         const c = await prisma.case.findFirst({
           where: { id, deletedAt: null },
           include: { client: true },
@@ -438,18 +475,26 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
 }
 
 async function handleTasks(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const auth = await getAuthFromRequest(request, 'mobile');
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const caseWhere = caseAccessWhere(auth);
+
   const id = rest[0];
   if (id) {
     if (method === 'GET') {
-      const t = await prisma.task.findFirst({ where: { id, deletedAt: null } });
-      return t ? NextResponse.json(t) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const t = await prisma.task.findFirst({ where: { id, deletedAt: null }, include: { case: true } });
+      if (!t) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      if (t.caseId && !(await canAccessCase(t.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      const { case: _c, ...task } = t;
+      return NextResponse.json(task);
     }
     if (rest[1] === 'status' && method === 'PATCH') {
       try {
-        const body = await request.json().catch(() => ({}));
-        const status = body.status ?? 'pending';
         const t = await prisma.task.findFirst({ where: { id, deletedAt: null } });
         if (!t) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        if (t.caseId && !(await canAccessCase(t.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        const body = await request.json().catch(() => ({}));
+        const status = body.status ?? 'pending';
         const updated = await prisma.task.update({ where: { id }, data: { status: String(status) } });
         return NextResponse.json(updated);
       } catch (e) {
@@ -460,7 +505,10 @@ async function handleTasks(rest: string[], method: string, request: NextRequest)
   }
   if (method === 'GET') {
     const list = await prisma.task.findMany({
-      where: { deletedAt: null },
+      where: {
+        deletedAt: null,
+        ...(Object.keys(caseWhere).length ? { case: { deletedAt: null, ...caseWhere } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -469,21 +517,32 @@ async function handleTasks(rest: string[], method: string, request: NextRequest)
   return methodNotAllowed();
 }
 
-async function handleDocuments(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
+async function handleDocuments(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const auth = await getAuthFromRequest(request, 'mobile');
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const caseWhere = caseAccessWhere(auth);
+
   if (rest[0] === 'case' && rest[1]) {
+    const caseId = rest[1];
+    if (!(await canAccessCase(caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     const list = await prisma.document.findMany({
-      where: { caseId: rest[1], deletedAt: null },
+      where: { caseId, deletedAt: null },
     });
     return NextResponse.json({ data: list });
   }
   const id = rest[0];
   if (id && method === 'GET') {
     const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
-    return d ? NextResponse.json(d) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (d.caseId && !(await canAccessCase(d.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json(d);
   }
   if (method === 'GET') {
     const list = await prisma.document.findMany({
-      where: { deletedAt: null },
+      where: {
+        deletedAt: null,
+        ...(Object.keys(caseWhere).length ? { case: { deletedAt: null, ...caseWhere } } : {}),
+      },
       take: 100,
     });
     return NextResponse.json({ data: list });

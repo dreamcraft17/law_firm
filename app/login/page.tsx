@@ -4,19 +4,42 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Mail, Lock, ArrowRight, Shield, BarChart3, FileCheck } from 'lucide-react';
+import { apiBaseUrl } from '@/lib/api-paths';
+import { adminEndpoints } from '@/lib/api-paths';
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setLoading(false);
-    router.push('/dashboard');
+    try {
+      const res = await fetch(`${apiBaseUrl}/${adminEndpoints.authLogin()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || 'Login gagal');
+        return;
+      }
+      if (data.access_token) {
+        try {
+          localStorage.setItem('admin_token', data.access_token);
+          if (data.permissions) localStorage.setItem('admin_permissions', JSON.stringify(data.permissions));
+          if (data.roleId) localStorage.setItem('admin_roleId', data.roleId);
+        } catch (_) {}
+      }
+      router.push('/dashboard');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -100,6 +123,11 @@ export default function LoginPage() {
               <p className="text-slate-500 text-sm mt-1">Gunakan akun Anda untuk mengakses dashboard</p>
             </div>
 
+            {error && (
+              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                {error}
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-2">

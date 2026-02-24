@@ -7,6 +7,7 @@ import Header from '@/components/Header';
 const titles: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/users': 'User & Role Management',
+  '/roles': 'Roles & Permissions',
   '/cases': 'Case Management',
   '/tasks': 'Task Workflow',
   '/documents': 'Document Management',
