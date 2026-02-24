@@ -19,17 +19,28 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-50 via-white to-amber-50/30">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_-20%,rgba(217,119,6,0.08),transparent)] pointer-events-none" />
-      <div className="relative w-full max-w-md">
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-card border border-slate-200/80 p-8">
-          <div className="flex flex-col items-center mb-8">
-            <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center text-white shadow-panel mb-4">
-              <Scale className="w-7 h-7" />
-            </div>
-            <h1 className="text-xl font-semibold text-slate-800">Admin Panel</h1>
-            <p className="text-sm text-slate-500 mt-1">Firma Hukum — masuk ke dashboard</p>
+    <div className="min-h-screen flex">
+      <div className="hidden lg:flex lg:w-[45%] bg-navy flex-col justify-between p-12">
+        <div>
+          <div className="w-14 h-14 rounded-2xl bg-gold flex items-center justify-center text-navy shadow-lg">
+            <Scale className="w-8 h-8" strokeWidth={2.2} />
           </div>
+          <h1 className="mt-8 text-2xl font-bold text-white tracking-tight">Firma Hukum</h1>
+          <p className="mt-2 text-slate-400 text-[15px] max-w-[280px]">
+            Panel admin untuk operasional, manajemen perkara, billing, dan reporting.
+          </p>
+        </div>
+        <p className="text-slate-500 text-sm">Login untuk mengakses dashboard</p>
+      </div>
+      <div className="flex-1 flex items-center justify-center p-8 bg-white">
+        <div className="w-full max-w-[380px]">
+          <div className="lg:hidden flex justify-center mb-8">
+            <div className="w-12 h-12 rounded-xl bg-gold flex items-center justify-center text-navy">
+              <Scale className="w-6 h-6" strokeWidth={2.2} />
+            </div>
+          </div>
+          <h2 className="text-xl font-semibold text-slate-800">Masuk ke Admin</h2>
+          <p className="text-slate-500 text-sm mt-1 mb-8">Gunakan akun Anda untuk login</p>
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
@@ -37,8 +48,8 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors"
-                placeholder="admin@firma.com"
+                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-gold/25 focus:border-gold transition-all"
+                placeholder="nama@firma.com"
                 required
               />
             </div>
@@ -48,7 +59,7 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors"
+                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-gold/25 focus:border-gold transition-all"
                 placeholder="••••••••"
                 required
               />
@@ -56,13 +67,12 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-primary text-white font-medium rounded-xl hover:bg-primary-light transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-panel"
+              className="w-full py-3.5 bg-navy text-white font-semibold rounded-xl hover:bg-navy-light transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-md"
             >
               {loading ? 'Memproses...' : 'Masuk'}
             </button>
           </form>
         </div>
-        <p className="text-center text-xs text-slate-400 mt-6">Panel operasional & monitoring</p>
       </div>
     </div>
   );

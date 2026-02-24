@@ -221,7 +221,7 @@ export default function UsersPage() {
                           type="button"
                           onClick={() => handleForceLogout(u)}
                           disabled={forceLogoutLoading === u.id}
-                          className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50"
+                          className="p-2 text-gold hover:bg-gold/10 rounded-lg transition-colors disabled:opacity-50"
                           title="Force logout"
                         >
                           <LogOut size={16} />
@@ -261,7 +261,7 @@ export default function UsersPage() {
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
                   disabled={!!editing}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 disabled:bg-slate-100 disabled:text-slate-500 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 disabled:bg-slate-100 disabled:text-slate-500 focus:ring-2 focus:ring-gold/25 focus:border-gold"
                   required
                 />
               </div>
@@ -271,7 +271,7 @@ export default function UsersPage() {
                   type="text"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-gold/25 focus:border-gold"
                 />
               </div>
               <div>
@@ -279,7 +279,7 @@ export default function UsersPage() {
                 <select
                   value={formRole}
                   onChange={(e) => setFormRole(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-gold/25 focus:border-gold"
                 >
                   {ROLES.map((r) => (
                     <option key={r} value={r}>
@@ -296,7 +296,7 @@ export default function UsersPage() {
                   type="password"
                   value={formPassword}
                   onChange={(e) => setFormPassword(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-gold/25 focus:border-gold"
                   required={!editing}
                   minLength={6}
                 />

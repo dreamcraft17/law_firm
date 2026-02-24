@@ -12,25 +12,30 @@ const config: Config = {
       },
       colors: {
         primary: {
-          DEFAULT: '#0f172a',
-          light: '#1e293b',
-          muted: '#64748b',
+          DEFAULT: '#0c1929',
+          light: '#132337',
         },
-        accent: {
-          DEFAULT: '#d97706',
-          light: '#fbbf24',
-          muted: '#fef3c7',
+        navy: {
+          DEFAULT: '#0c1929',
+          light: '#132337',
+          border: '#1e3a5f',
+        },
+        gold: {
+          DEFAULT: '#c9a227',
+          light: '#e6c04a',
+          dark: '#a68520',
+          bg: 'rgba(201, 162, 39, 0.12)',
         },
         surface: {
-          DEFAULT: '#f8fafc',
+          DEFAULT: '#f1f5f9',
           card: '#ffffff',
-          border: '#e2e8f0',
         },
       },
       boxShadow: {
-        'panel': '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06)',
-        'card': '0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05)',
-        'card-hover': '0 10px 15px -3px rgb(0 0 0 / 0.06), 0 4px 6px -4px rgb(0 0 0 / 0.05)',
+        'panel': '0 1px 2px 0 rgb(0 0 0 / 0.04)',
+        'card': '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04)',
+        'card-hover': '0 8px 25px -5px rgb(0 0 0 / 0.08), 0 4px 10px -4px rgb(0 0 0 / 0.04)',
+        'dropdown': '0 10px 40px -10px rgb(0 0 0 / 0.15)',
       },
     },
   },

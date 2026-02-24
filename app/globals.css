@@ -3,28 +3,24 @@
 @tailwind utilities;
 
 :root {
-  --primary: #0f172a;
-  --primary-light: #1e293b;
-  --accent: #d97706;
-  --accent-muted: #fef3c7;
-  --surface: #f8fafc;
-  --border: #e2e8f0;
+  --navy: #0c1929;
+  --gold: #c9a227;
+  --surface: #f1f5f9;
 }
 
 body {
   @apply bg-surface text-slate-800 antialiased;
 }
 
-/* Custom scrollbar for sidebar */
 .sidebar-scroll::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 .sidebar-scroll::-webkit-scrollbar-track {
-  @apply bg-transparent;
+  background: transparent;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  @apply bg-slate-200 rounded-full;
+  @apply bg-navy-border rounded-full;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-300;
+  background: #2a4a6e;
 }

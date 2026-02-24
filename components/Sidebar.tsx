@@ -33,20 +33,19 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-[260px] min-h-screen flex flex-col bg-white border-r border-slate-200 shrink-0">
-      <div className="p-5 border-b border-slate-100">
+    <aside className="w-[240px] min-h-screen flex flex-col bg-navy shrink-0">
+      <div className="p-5">
         <Link href="/dashboard" className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white shadow-panel">
-            <Scale className="w-5 h-5" />
+          <div className="w-11 h-11 rounded-xl bg-gold flex items-center justify-center text-navy shadow-lg">
+            <Scale className="w-6 h-6" strokeWidth={2.2} />
           </div>
           <div>
-            <span className="font-semibold text-slate-800 block leading-tight">Firma Hukum</span>
-            <span className="text-xs text-slate-500">Admin Panel</span>
+            <span className="font-bold text-white block leading-tight text-[15px]">Firma Hukum</span>
+            <span className="text-[11px] text-slate-400 uppercase tracking-widest">Admin</span>
           </div>
         </Link>
       </div>
-      <nav className="flex-1 p-3 overflow-y-auto sidebar-scroll">
-        <p className="px-3 mb-2 text-xs font-medium text-slate-400 uppercase tracking-wider">Menu</p>
+      <nav className="flex-1 px-3 pb-4 overflow-y-auto sidebar-scroll">
         <ul className="space-y-0.5">
           {nav.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href || pathname.startsWith(href + '/');
@@ -54,13 +53,13 @@ export default function Sidebar() {
               <li key={href}>
                 <Link
                   href={href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 ${
                     isActive
-                      ? 'bg-amber-50 text-amber-800 border-l-4 border-amber-500 border-y-0 border-r-0 -ml-[3px] pl-[13px]'
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      ? 'bg-gold/20 text-gold-light border border-gold/30'
+                      : 'text-slate-300 hover:bg-navy-light hover:text-white border border-transparent'
                   }`}
                 >
-                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-amber-600' : 'text-slate-400'}`} />
+                  <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={isActive ? 2.2 : 1.8} />
                   <span>{label}</span>
                 </Link>
               </li>
@@ -68,10 +67,8 @@ export default function Sidebar() {
           })}
         </ul>
       </nav>
-      <div className="p-3 border-t border-slate-100">
-        <div className="px-3 py-2 text-xs text-slate-400">
-          Panel operasional firma
-        </div>
+      <div className="p-3 border-t border-navy-border">
+        <p className="px-3 text-[11px] text-slate-500">Panel operasional</p>
       </div>
     </aside>
   );

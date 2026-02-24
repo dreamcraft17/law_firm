@@ -131,7 +131,7 @@ export default function KnowledgeBasePage() {
                   {item.description && <span className="text-slate-500 ml-2">— {item.description}</span>}
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => openEdit(item)} className="text-primary hover:underline font-medium">
+                  <button type="button" onClick={() => openEdit(item)} className="text-navy hover:underline font-medium">
                     Edit
                   </button>
                   <button type="button" onClick={() => setDeleteConfirm(item)} className="text-red-600 hover:underline font-medium">
@@ -155,7 +155,7 @@ export default function KnowledgeBasePage() {
                   type="text"
                   value={formKey}
                   onChange={(e) => setFormKey(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 disabled:bg-slate-100"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-gold/25 focus:border-gold disabled:bg-slate-100"
                   placeholder="contoh: template-gugatan"
                   required
                   disabled={!!editing}
@@ -167,7 +167,7 @@ export default function KnowledgeBasePage() {
                   type="text"
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-gold/25 focus:border-gold"
                   placeholder="Deskripsi singkat"
                 />
               </div>
@@ -176,7 +176,7 @@ export default function KnowledgeBasePage() {
                 <textarea
                   value={formValue}
                   onChange={(e) => setFormValue(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 h-32 font-mono text-sm focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 h-32 font-mono text-sm focus:ring-2 focus:ring-gold/25 focus:border-gold"
                   placeholder='{"content": "..."} atau teks biasa'
                 />
               </div>
