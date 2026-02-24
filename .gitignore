@@ -6,3 +6,6 @@ out
 .DS_Store
 *.log
 npm-debug.log*
+
+# Local document uploads (when BLOB_READ_WRITE_TOKEN not set)
+public/uploads

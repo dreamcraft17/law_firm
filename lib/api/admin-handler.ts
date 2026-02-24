@@ -5,8 +5,9 @@
  */
 import bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
-import { put } from '@vercel/blob';
 import { prisma } from '@/lib/db';
+import { mkdir, writeFile } from 'fs/promises';
+import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthFromRequest, createSession, getPermissionsForUser, requirePermission, type AuthUser } from '@/lib/auth-helper';
 import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
@@ -849,13 +850,40 @@ async function handleDocumentFileUpload(request: NextRequest): Promise<NextRespo
       }
     }
     const created: { id: string; name: string; fileUrl: string | null }[] = [];
+    const hasBlobToken = !!process.env.BLOB_READ_WRITE_TOKEN;
+
     for (const file of files) {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200) || 'document';
-      const blob = await put(`documents/${Date.now()}-${safeName}`, file, { access: 'public' });
+      let fileUrl: string;
+
+      if (hasBlobToken) {
+        const { put } = await import('@vercel/blob');
+        const blob = await put(`documents/${Date.now()}-${safeName}`, file, { access: 'public' });
+        fileUrl = blob.url;
+      } else {
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+        try {
+          await mkdir(uploadDir, { recursive: true });
+        } catch (err) {
+          console.error('document upload: mkdir failed', err);
+          return NextResponse.json(
+            {
+              error:
+                'Upload file tidak dikonfigurasi. Set BLOB_READ_WRITE_TOKEN (Vercel Blob) di env, atau jalankan di lingkungan yang mendukung penyimpanan lokal.',
+            },
+            { status: 503 }
+          );
+        }
+        const filename = `${Date.now()}-${safeName}`;
+        const filepath = path.join(uploadDir, filename);
+        await writeFile(filepath, Buffer.from(await file.arrayBuffer()));
+        fileUrl = `/uploads/${filename}`;
+      }
+
       const doc = await prisma.document.create({
         data: {
           name: file.name.slice(0, 500),
-          fileUrl: blob.url,
+          fileUrl,
           caseId,
           clientVisible: false,
         },
