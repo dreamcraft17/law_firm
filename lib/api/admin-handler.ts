@@ -266,7 +266,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       return NextResponse.json(normalizeCaseForResponse(c));
     }
     if (method === 'PUT' || method === 'PATCH') {
-      let body: { title?: string; status?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null } = {};
+      let body: { title?: string; status?: string; stage?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown } = {};
       try {
         body = await request.json();
       } catch {
@@ -332,11 +332,13 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
     let body: {
       title: string;
       status?: string;
+      stage?: string;
       clientId?: string | null;
       client_name?: string;
       caseNumber?: string;
       case_number?: string;
       description?: string | null;
+      parties?: unknown;
     } = { title: '' };
     try {
       body = await request.json();
