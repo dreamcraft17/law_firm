@@ -1,0 +1,1 @@
+ALTER TABLE "documents" ADD COLUMN IF NOT EXISTS "file_url" VARCHAR(2048);

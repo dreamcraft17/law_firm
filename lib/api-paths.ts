@@ -103,6 +103,7 @@ export const adminEndpoints = {
   documentDetail: (id: string) => `${ApiPaths.documents}/${id}`,
   documentsByCase: (caseId: string) => `${ApiPaths.documents}/case/${caseId}`,
   documentBulkUpload: () => `${ApiPaths.documents}/bulk-upload`,
+  documentUpload: () => `${ApiPaths.documents}/upload`,
 
   // Tasks (W3)
   tasksList: () => ApiPaths.tasks,

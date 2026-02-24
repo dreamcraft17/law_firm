@@ -7,6 +7,7 @@ import { adminEndpoints } from '@/lib/api-paths';
 type DocumentItem = {
   id: string;
   name: string;
+  fileUrl?: string | null;
   caseId?: string | null;
   createdAt: string;
 };
@@ -17,6 +18,8 @@ export default function DocumentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [bulkNames, setBulkNames] = useState('');
   const [bulkCaseId, setBulkCaseId] = useState('');
+  const [uploadCaseId, setUploadCaseId] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const load = async () => {
@@ -37,6 +40,40 @@ export default function DocumentsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const handleFileUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFiles?.length) {
+      setError('Pilih minimal satu file');
+      return;
+    }
+    setUploading(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      for (let i = 0; i < selectedFiles.length; i++) {
+        formData.append('files', selectedFiles[i]);
+      }
+      if (uploadCaseId.trim()) formData.set('caseId', uploadCaseId.trim());
+      const res = await adminFetch(adminEndpoints.documentUpload(), {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || res.statusText);
+      }
+      setSelectedFiles(null);
+      setUploadCaseId('');
+      const fileInput = document.getElementById('doc-file-input') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Gagal upload');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleBulkUpload = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,7 +113,43 @@ export default function DocumentsPage() {
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
       )}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <h2 className="font-semibold text-gray-800 mb-3">Bulk Upload</h2>
+        <h2 className="font-semibold text-gray-800 mb-3">Upload File</h2>
+        <form onSubmit={handleFileUpload}>
+          <div className="mb-3">
+            <label className="block text-sm text-gray-600 mb-1">Case ID (opsional)</label>
+            <input
+              type="text"
+              value={uploadCaseId}
+              onChange={(e) => setUploadCaseId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 w-full max-w-md"
+              placeholder="UUID case"
+            />
+          </div>
+          <div className="mb-3">
+            <label className="block text-sm text-gray-600 mb-1">Pilih file (PDF, DOC, dll.)</label>
+            <input
+              id="doc-file-input"
+              type="file"
+              multiple
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg"
+              onChange={(e) => setSelectedFiles(e.target.files)}
+              className="border border-gray-300 rounded-lg px-3 py-2 w-full max-w-md file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#1B4965] file:text-white file:text-sm"
+            />
+            {selectedFiles?.length ? (
+              <p className="text-sm text-gray-500 mt-1">{selectedFiles.length} file dipilih</p>
+            ) : null}
+          </div>
+          <button
+            type="submit"
+            disabled={uploading || !selectedFiles?.length}
+            className="px-4 py-2 bg-[#1B4965] text-white rounded-lg text-sm disabled:opacity-50"
+          >
+            {uploading ? 'Mengupload...' : 'Upload File'}
+          </button>
+        </form>
+      </div>
+      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+        <h2 className="font-semibold text-gray-800 mb-3">Bulk Upload (nama saja, tanpa file)</h2>
         <form onSubmit={handleBulkUpload}>
           <div className="mb-3">
             <label className="block text-sm text-gray-600 mb-1">Case ID (opsional)</label>
@@ -100,7 +173,7 @@ export default function DocumentsPage() {
           <button
             type="submit"
             disabled={uploading}
-            className="px-4 py-2 bg-[#1B4965] text-white rounded-lg text-sm disabled:opacity-50"
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg text-sm disabled:opacity-50"
           >
             {uploading ? '...' : 'Bulk Upload'}
           </button>
@@ -118,6 +191,7 @@ export default function DocumentsPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="text-left p-3">Nama</th>
+                  <th className="text-left p-3">File</th>
                   <th className="text-left p-3">Case ID</th>
                   <th className="text-left p-3">Created</th>
                 </tr>
@@ -126,6 +200,15 @@ export default function DocumentsPage() {
                 {list.map((d) => (
                   <tr key={d.id} className="border-t border-gray-100">
                     <td className="p-3">{d.name}</td>
+                    <td className="p-3">
+                      {d.fileUrl ? (
+                        <a href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="text-[#1B4965] underline">
+                          Unduh
+                        </a>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="p-3 font-mono text-xs">{d.caseId?.slice(0, 8) ?? '—'}…</td>
                     <td className="p-3 text-gray-500">{new Date(d.createdAt).toLocaleDateString('id-ID')}</td>
                   </tr>

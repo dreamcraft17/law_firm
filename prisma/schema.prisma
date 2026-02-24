@@ -185,6 +185,7 @@ model Document {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   caseId        String?  @map("case_id") @db.Uuid
   name          String   @db.VarChar(500)
+  fileUrl       String?  @map("file_url") @db.VarChar(2048)
   folder        String?  @db.VarChar(255)
   version       Int      @default(1) @db.SmallInt
   clientVisible Boolean  @default(false) @map("client_visible") @db.Boolean

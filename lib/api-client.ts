@@ -7,8 +7,9 @@ export async function adminFetch(
 ): Promise<Response> {
   const url = path.startsWith('http') ? path : `${apiBaseUrl}/${path}`;
   const token = typeof window !== 'undefined' ? getStoredToken() : null;
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(!isFormData && { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string>),
   };
   if (token) {

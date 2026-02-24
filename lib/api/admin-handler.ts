@@ -5,6 +5,7 @@
  */
 import bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
+import { put } from '@vercel/blob';
 import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthFromRequest, createSession, getPermissionsForUser, requirePermission, type AuthUser } from '@/lib/auth-helper';
@@ -809,7 +810,50 @@ async function handleRateCards(rest: string[], method: string, request: NextRequ
   return methodNotAllowed();
 }
 
+async function handleDocumentFileUpload(request: NextRequest): Promise<NextResponse> {
+  try {
+    const formData = await request.formData();
+    const caseId = (formData.get('caseId') as string)?.trim() || null;
+    const files: File[] = [];
+    const filesField = formData.getAll('files');
+    for (const f of filesField) {
+      if (f instanceof File && f.size > 0) files.push(f);
+    }
+    if (formData.get('file') instanceof File) {
+      const single = formData.get('file') as File;
+      if (single.size > 0) files.push(single);
+    }
+    if (files.length === 0) {
+      return NextResponse.json({ error: 'Pilih minimal satu file' }, { status: 400 });
+    }
+    const created: { id: string; name: string; fileUrl: string | null }[] = [];
+    for (const file of files) {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200) || 'document';
+      const blob = await put(`documents/${Date.now()}-${safeName}`, file, { access: 'public' });
+      const doc = await prisma.document.create({
+        data: {
+          name: file.name.slice(0, 500),
+          fileUrl: blob.url,
+          caseId,
+          clientVisible: false,
+        },
+      });
+      created.push({ id: doc.id, name: doc.name, fileUrl: doc.fileUrl });
+    }
+    return NextResponse.json({ data: created, count: created.length }, { status: 201 });
+  } catch (e) {
+    console.error('document file upload error', e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Upload gagal' },
+      { status: 500 }
+    );
+  }
+}
+
 async function handleDocuments(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  if (rest[0] === 'upload' && method === 'POST') {
+    return handleDocumentFileUpload(request);
+  }
   const id = rest[0];
   if (id && id !== 'case' && id !== 'bulk-upload') {
     if (method === 'GET') {
