@@ -85,8 +85,10 @@ async function handleAuth(
     }
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
+      await prisma.auditLog.create({ data: { userId: user.id, action: 'login_failed', entity: 'user', entityId: user.id, details: { email: user.email, reason: 'invalid_password' } } }).catch(() => {});
       return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
     }
+    await prisma.auditLog.create({ data: { userId: user.id, action: 'login', entity: 'user', entityId: user.id, details: { email: user.email } } }).catch(() => {});
     const token = `mobile_${crypto.randomBytes(24).toString('hex')}`;
     const refreshToken = `mobile_refresh_${crypto.randomBytes(24).toString('hex')}`;
     const userPayload = {
@@ -132,10 +134,44 @@ async function handleAuth(
       user: { id: user.id, email: user.email, name: user.name, role: user.role, phone: null },
     });
   }
+  if (rest[0] === 'reset-password' && rest[1] === 'confirm' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const email = body.email?.trim()?.toLowerCase();
+    const token = body.token;
+    const newPassword = body.newPassword ?? body.new_password;
+    if (!email || !token || !newPassword) return NextResponse.json({ error: 'email, token, dan newPassword wajib' }, { status: 400 });
+    const key = `reset_token:${email}`;
+    const row = await prisma.systemSetting.findUnique({ where: { key } });
+    if (!row || !row.value || typeof row.value !== 'object') return NextResponse.json({ error: 'Token tidak valid atau kedaluwarsa' }, { status: 400 });
+    const v = row.value as { token?: string; expiresAt?: string };
+    if (v.token !== token) return NextResponse.json({ error: 'Token tidak valid' }, { status: 400 });
+    if (new Date(v.expiresAt ?? 0) < new Date()) {
+      await prisma.systemSetting.deleteMany({ where: { key } });
+      return NextResponse.json({ error: 'Token kedaluwarsa' }, { status: 400 });
+    }
+    const user = await prisma.user.findFirst({ where: { email, deletedAt: null } });
+    if (!user) return NextResponse.json({ error: 'User tidak ditemukan' }, { status: 404 });
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+    await prisma.systemSetting.deleteMany({ where: { key } });
+    return NextResponse.json({ message: 'Password berhasil diubah' });
+  }
   if (action === 'reset-password' && method === 'POST') {
     const body = await request.json().catch(() => ({}));
-    if (!body.email) return NextResponse.json({ error: 'email required' }, { status: 400 });
-    return NextResponse.json({ message: 'Reset link sent to email' });
+    const email = body.email?.trim()?.toLowerCase();
+    if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 });
+    const user = await prisma.user.findFirst({ where: { email, deletedAt: null } });
+    if (user) {
+      const token = crypto.randomBytes(24).toString('hex');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const key = `reset_token:${email}`;
+      await prisma.systemSetting.upsert({
+        where: { key },
+        create: { key, value: { token, expiresAt }, category: 'auth', description: 'Password reset token' },
+        update: { value: { token, expiresAt } },
+      });
+    }
+    return NextResponse.json({ message: 'Jika email terdaftar, instruksi reset password akan dikirim.' });
   }
   return NextResponse.json({ error: 'Not found' }, { status: 404 });
 }

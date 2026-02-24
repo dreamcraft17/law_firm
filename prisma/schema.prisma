@@ -24,6 +24,7 @@ model User {
   lawyerMetrics LawyerPerformanceMetric[]
   timeEntries   TimeEntry[]
   rateCards     RateCard[]
+  caseTeams     CaseTeamMember[]
 
   @@map("users")
 }
@@ -78,14 +79,29 @@ model Case {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  client      Client?   @relation(fields: [clientId], references: [id])
-  riskScores  CaseRiskScore[]
-  timeEntries TimeEntry[]
-  expenses    CaseExpense[]
-  tasks       Task[]
-  documents   Document[]
+  client       Client?           @relation(fields: [clientId], references: [id])
+  riskScores   CaseRiskScore[]
+  timeEntries  TimeEntry[]
+  expenses     CaseExpense[]
+  tasks        Task[]
+  documents    Document[]
+  teamMembers  CaseTeamMember[]
 
   @@map("cases")
+}
+
+model CaseTeamMember {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId    String   @map("case_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      String?  @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, userId])
+  @@map("case_team_members")
 }
 
 // --- Mobile: tasks, documents, events, invoices, notifications ---

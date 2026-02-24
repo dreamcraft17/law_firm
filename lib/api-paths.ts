@@ -49,6 +49,9 @@ export const ApiPaths = {
 
   /** /admin/audit/* */
   audit: 'admin/audit',
+
+  /** /admin/knowledge-base/* (W8) */
+  knowledgeBase: 'admin/knowledge-base',
 } as const;
 
 /** Helper endpoint paths untuk admin web */
@@ -143,4 +146,11 @@ export const adminEndpoints = {
     return q ? `${ApiPaths.audit}?${q}` : ApiPaths.audit;
   },
   auditExport: () => `${ApiPaths.audit}/export`,
+
+  // Knowledge Base (W8)
+  knowledgeBaseList: () => ApiPaths.knowledgeBase,
+  knowledgeBaseDetail: (key: string) => `${ApiPaths.knowledgeBase}/${key}`,
+  knowledgeBaseCreate: () => ApiPaths.knowledgeBase,
+  knowledgeBaseUpdate: (key: string) => `${ApiPaths.knowledgeBase}/${key}`,
+  knowledgeBaseDelete: (key: string) => `${ApiPaths.knowledgeBase}/${key}`,
 } as const;

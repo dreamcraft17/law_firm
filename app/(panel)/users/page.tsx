@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/api-client';
 import { adminEndpoints } from '@/lib/api-paths';
-import { Pencil, Trash2, UserPlus } from 'lucide-react';
+import { Pencil, Trash2, UserPlus, History, LogOut } from 'lucide-react';
 
 type User = {
   id: string;
@@ -28,6 +28,9 @@ export default function UsersPage() {
   const [formRole, setFormRole] = useState<string>('staff');
   const [formPassword, setFormPassword] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<User | null>(null);
+  const [loginHistoryUser, setLoginHistoryUser] = useState<User | null>(null);
+  const [loginHistory, setLoginHistory] = useState<{ createdAt: string; details?: unknown }[]>([]);
+  const [forceLogoutLoading, setForceLogoutLoading] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -123,6 +126,33 @@ export default function UsersPage() {
     }
   };
 
+  const openLoginHistory = async (u: User) => {
+    setLoginHistoryUser(u);
+    setLoginHistory([]);
+    try {
+      const res = await adminFetch(adminEndpoints.userLoginHistory(u.id));
+      if (res.ok) {
+        const json = await res.json();
+        setLoginHistory(Array.isArray(json.data) ? json.data : []);
+      }
+    } catch {
+      setLoginHistory([]);
+    }
+  };
+
+  const handleForceLogout = async (u: User) => {
+    setForceLogoutLoading(u.id);
+    try {
+      const res = await adminFetch(adminEndpoints.userForceLogout(u.id), { method: 'POST' });
+      if (!res.ok) throw new Error(res.statusText);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Gagal force logout');
+    } finally {
+      setForceLogoutLoading(null);
+    }
+  };
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
@@ -170,7 +200,7 @@ export default function UsersPage() {
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => openEdit(u)}
@@ -178,6 +208,23 @@ export default function UsersPage() {
                           title="Edit"
                         >
                           <Pencil size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openLoginHistory(u)}
+                          className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
+                          title="Riwayat login"
+                        >
+                          <History size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleForceLogout(u)}
+                          disabled={forceLogoutLoading === u.id}
+                          className="p-1.5 text-amber-600 hover:bg-amber-50 rounded disabled:opacity-50"
+                          title="Force logout"
+                        >
+                          <LogOut size={16} />
                         </button>
                         <button
                           type="button"
@@ -299,6 +346,31 @@ export default function UsersPage() {
               >
                 Batal
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal riwayat login */}
+      {loginHistoryUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="font-semibold text-gray-900">Riwayat login — {loginHistoryUser.email}</h3>
+              <button type="button" onClick={() => setLoginHistoryUser(null)} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+            <div className="p-4 overflow-auto">
+              {loginHistory.length === 0 ? (
+                <p className="text-sm text-gray-500">Belum ada riwayat login (atau user belum login via mobile).</p>
+              ) : (
+                <ul className="space-y-2 text-sm">
+                  {loginHistory.map((log, i) => (
+                    <li key={i} className="py-2 border-b border-gray-100 last:border-0">
+                      <span className="text-gray-600">{new Date(log.createdAt).toLocaleString('id-ID')}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>

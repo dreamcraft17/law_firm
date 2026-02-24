@@ -50,6 +50,8 @@ export async function handleAdmin(
         return handleSettings(rest, method, request);
       case 'audit':
         return handleAudit(rest, method, request);
+      case 'knowledge-base':
+        return handleKnowledgeBase(rest, method, request);
       default:
         return NextResponse.json(
           { error: 'Not found', path: pathSegments.join('/') },
@@ -96,8 +98,20 @@ async function handleUsers(rest: string[], method: string, request: NextRequest)
       await prisma.user.update({ where: { id }, data: { deletedAt: new Date() } });
       return NextResponse.json({ message: 'OK' });
     }
-    if (rest[1] === 'login-history' && method === 'GET') return NextResponse.json({ data: [] });
-    if (rest[1] === 'force-logout' && method === 'POST') return NextResponse.json({ message: 'OK' });
+    if (rest[1] === 'login-history' && method === 'GET') {
+      const logs = await prisma.auditLog.findMany({
+        where: { userId: id, action: 'login' },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+      return NextResponse.json({ data: logs });
+    }
+    if (rest[1] === 'force-logout' && method === 'POST') {
+      const existing = await prisma.user.findFirst({ where: { id, deletedAt: null } });
+      if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      await prisma.auditLog.create({ data: { userId: id, action: 'force_logout', entity: 'user', entityId: id, details: { email: existing.email } } }).catch(() => {});
+      return NextResponse.json({ message: 'OK' });
+    }
     return methodNotAllowed();
   }
   if (method === 'GET') {
@@ -308,7 +322,38 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       await prisma.auditLog.create({ data: { action: 'delete', entity: 'case', entityId: id, details: { title: existing.title } } }).catch(() => {});
       return NextResponse.json({ message: 'OK' });
     }
-    if (rest[1] === 'team' && method === 'POST') return NextResponse.json({ message: 'OK' });
+    if (rest[1] === 'team') {
+      const caseExists = await prisma.case.findFirst({ where: { id, deletedAt: null } });
+      if (!caseExists) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      if (method === 'GET') {
+        const members = await prisma.caseTeamMember.findMany({
+          where: { caseId: id },
+          include: { user: { select: { id: true, name: true, email: true, role: true } } },
+        });
+        return NextResponse.json({ data: members });
+      }
+      if (method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const userId = body.userId ?? body.user_id;
+        const role = body.role ?? 'member';
+        if (!userId) return NextResponse.json({ error: 'userId required' }, { status: 400 });
+        const member = await prisma.caseTeamMember.upsert({
+          where: { caseId_userId: { caseId: id, userId } },
+          create: { caseId: id, userId, role },
+          update: { role },
+          include: { user: { select: { id: true, name: true, email: true, role: true } } },
+        });
+        return NextResponse.json(member, { status: 201 });
+      }
+      if (method === 'DELETE') {
+        const body = await request.json().catch(() => ({}));
+        const userId = body.userId ?? body.user_id ?? rest[2];
+        if (!userId) return NextResponse.json({ error: 'userId required' }, { status: 400 });
+        await prisma.caseTeamMember.deleteMany({ where: { caseId: id, userId } });
+        return NextResponse.json({ message: 'OK' });
+      }
+      return methodNotAllowed();
+    }
     if (rest[1] === 'export' && method === 'GET') {
       const c = await prisma.case.findFirst({
         where: { id, deletedAt: null },
@@ -329,7 +374,42 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
     }
     return methodNotAllowed();
   }
-  if (rest[0] === 'conflict-check' && method === 'POST') return NextResponse.json({ data: {} });
+  if (rest[0] === 'conflict-check' && method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const clientId = body.clientId ?? null;
+      const excludeCaseId = body.caseId ?? body.excludeCaseId ?? null;
+      const conflicts: { caseId: string; title: string; reason: string }[] = [];
+      if (clientId) {
+        const sameClient = await prisma.case.findMany({
+          where: { clientId, deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
+          select: { id: true, title: true },
+        });
+        sameClient.forEach((c) => conflicts.push({ caseId: c.id, title: c.title, reason: 'same_client' }));
+      }
+      const parties = body.parties as Record<string, string> | undefined;
+      if (parties && typeof parties === 'object') {
+        const partyNames = [parties.plaintiff, parties.defendant, parties.instansi].filter(Boolean) as string[];
+        if (partyNames.length > 0) {
+          const allCases = await prisma.case.findMany({
+            where: { deletedAt: null, parties: { not: Prisma.JsonNull } },
+            select: { id: true, title: true, parties: true },
+          });
+          for (const c of allCases) {
+            if (excludeCaseId && c.id === excludeCaseId) continue;
+            const p = c.parties as Record<string, string> | null;
+            if (!p) continue;
+            const existing = [p.plaintiff, p.defendant, p.instansi].filter(Boolean) as string[];
+            const overlap = partyNames.some((n) => existing.some((e) => e.toLowerCase().includes((n as string).toLowerCase()) || (n as string).toLowerCase().includes(e.toLowerCase())));
+            if (overlap) conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap' });
+          }
+        }
+      }
+      return NextResponse.json({ hasConflict: conflicts.length > 0, conflicts });
+    } catch {
+      return NextResponse.json({ hasConflict: false, conflicts: [] });
+    }
+  }
   if (method === 'GET') {
     const list = await prisma.case.findMany({
       where: { deletedAt: null },
@@ -394,12 +474,13 @@ async function handleTasks(rest: string[], method: string, request: NextRequest)
     if (method === 'PUT' || method === 'PATCH') {
       try {
         const body = await request.json().catch(() => ({}));
-        const data: { title?: string; status?: string; caseId?: string | null; dueDate?: Date | null; description?: string | null } = {};
+        const data: { title?: string; status?: string; caseId?: string | null; dueDate?: Date | null; description?: string | null; assigneeId?: string | null } = {};
         if (body.title !== undefined) data.title = body.title;
         if (body.status !== undefined) data.status = body.status;
         if (body.caseId !== undefined) data.caseId = body.caseId ?? null;
         if (body.dueDate !== undefined) data.dueDate = body.dueDate ? new Date(body.dueDate) : null;
         if (body.description !== undefined) data.description = body.description;
+        if (body.assigneeId !== undefined) data.assigneeId = body.assigneeId ?? null;
         const t = await prisma.task.update({ where: { id }, data });
         return NextResponse.json(t);
       } catch (e) {
@@ -432,6 +513,7 @@ async function handleTasks(rest: string[], method: string, request: NextRequest)
           status: body.status ?? 'pending',
           caseId: body.caseId ?? null,
           description: body.description ?? null,
+          assigneeId: body.assigneeId ?? null,
           dueDate: body.dueDate ? new Date(body.dueDate) : null,
         },
       });
@@ -585,9 +667,27 @@ async function handleRateCards(rest: string[], method: string, request: NextRequ
 
 async function handleDocuments(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
   const id = rest[0];
-  if (id && method === 'GET') {
-    const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
-    return d ? NextResponse.json(d) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (id && id !== 'case' && id !== 'bulk-upload') {
+    if (method === 'GET') {
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      return d ? NextResponse.json(d) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    if (method === 'PUT' || method === 'PATCH') {
+      const body = await request.json().catch(() => ({}));
+      const data: { name?: string; folder?: string | null; clientVisible?: boolean; version?: number } = {};
+      if (body.name !== undefined) data.name = body.name;
+      if (body.folder !== undefined) data.folder = body.folder ?? null;
+      if (body.clientVisible !== undefined) data.clientVisible = !!body.clientVisible;
+      if (body.version !== undefined) data.version = Number(body.version) || 1;
+      const d = await prisma.document.update({ where: { id }, data });
+      return NextResponse.json(d);
+    }
+    if (method === 'DELETE') {
+      const existing = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      await prisma.document.update({ where: { id }, data: { deletedAt: new Date() } });
+      return NextResponse.json({ message: 'OK' });
+    }
   }
   if (rest[0] === 'case' && rest[1] && method === 'GET') {
     const list = await prisma.document.findMany({ where: { caseId: rest[1], deletedAt: null } });
@@ -705,18 +805,17 @@ async function handleReports(rest: string[], method: string, _request: NextReque
     prisma.task.count({ where: { deletedAt: null } }),
   ]);
   const activeCases = caseCount - closedCases;
-  return NextResponse.json({
-    summary: {
-      totalCases: caseCount,
-      activeCases,
-      closedCases,
-      totalUsers: userCount,
-      totalInvoices: invoiceAgg._count,
-      totalRevenue: Number(invoiceAgg._sum.amount ?? 0),
-      totalTasks: tasksCount,
-    },
-    data: [],
-  });
+  const summary = {
+    totalCases: caseCount,
+    activeCases,
+    closedCases,
+    totalUsers: userCount,
+    totalInvoices: invoiceAgg._count,
+    totalRevenue: Number(invoiceAgg._sum.amount ?? 0),
+    totalTasks: tasksCount,
+  };
+  if (rest[0] === 'dashboard') return NextResponse.json({ summary, data: [] });
+  return NextResponse.json({ summary, data: [] });
 }
 
 async function handleSettings(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
@@ -761,6 +860,37 @@ async function handleAudit(rest: string[], method: string, request: NextRequest)
   } catch {
     return NextResponse.json({ data: [] });
   }
+}
+
+async function handleKnowledgeBase(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const CATEGORY = 'knowledge_base';
+  if (method === 'GET') {
+    const list = await prisma.systemSetting.findMany({ where: { category: CATEGORY }, orderBy: { key: 'asc' }, take: 200 });
+    return NextResponse.json({ data: list });
+  }
+  if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+    let body: { key?: string; value?: unknown; description?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    const key = body.key ?? rest[0];
+    if (!key || typeof key !== 'string') return NextResponse.json({ error: 'key required' }, { status: 400 });
+    const row = await prisma.systemSetting.upsert({
+      where: { key },
+      create: { key, value: body.value != null ? (body.value as Prisma.InputJsonValue) : Prisma.JsonNull, category: CATEGORY, description: body.description ?? null },
+      update: { value: body.value !== undefined ? (body.value as Prisma.InputJsonValue) : undefined, description: body.description !== undefined ? body.description : undefined },
+    });
+    return NextResponse.json(row, { status: 201 });
+  }
+  if (method === 'DELETE') {
+    const key = rest[0];
+    if (!key) return NextResponse.json({ error: 'key required' }, { status: 400 });
+    await prisma.systemSetting.deleteMany({ where: { key, category: CATEGORY } });
+    return NextResponse.json({ message: 'OK' });
+  }
+  return methodNotAllowed();
 }
 
 function methodNotAllowed() {
