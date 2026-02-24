@@ -3,6 +3,7 @@
  * Path: admin/users, admin/cases, admin/documents, dll.
  */
 import bcrypt from 'bcrypt';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
@@ -282,9 +283,19 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       if (body.caseNumber !== undefined || body.case_number !== undefined) data.caseNumber = (body.caseNumber ?? body.case_number)?.trim() || null;
       if (body.description !== undefined) data.description = body.description?.trim() || null;
       if (body.parties !== undefined) data.parties = body.parties;
+      // Prisma CaseUpdateInput union rejects clientId: null; use relation API to clear client.
+      const updateData: Prisma.CaseUpdateInput = {};
+      if (data.title !== undefined) updateData.title = data.title;
+      if (data.status !== undefined) updateData.status = data.status;
+      if (data.stage !== undefined) updateData.stage = data.stage;
+      if (data.clientId === null) updateData.client = { disconnect: true };
+      else if (data.clientId !== undefined) updateData.client = { connect: { id: data.clientId } };
+      if (data.caseNumber !== undefined) updateData.caseNumber = data.caseNumber;
+      if (data.description !== undefined) updateData.description = data.description;
+      if (data.parties !== undefined) updateData.parties = data.parties as Prisma.InputJsonValue;
       const c = await prisma.case.update({
         where: { id },
-        data,
+        data: updateData,
         include: { client: true },
       });
       await prisma.auditLog.create({ data: { action: 'update', entity: 'case', entityId: id, details: { title: c.title } } }).catch(() => {});
@@ -355,7 +366,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         clientId,
         caseNumber: (body.caseNumber ?? body.case_number)?.trim() || null,
         description: body.description?.trim() || null,
-        parties: body.parties ?? null,
+        parties: body.parties != null ? (body.parties as Prisma.InputJsonValue) : Prisma.JsonNull,
       },
       include: { client: true },
     });
@@ -643,7 +654,14 @@ async function handleBilling(rest: string[], method: string, request: NextReques
       if (body.invoiceNumber !== undefined) data.invoiceNumber = body.invoiceNumber;
       if (body.clientId !== undefined) data.clientId = body.clientId ?? null;
       if (body.dueDate !== undefined) data.dueDate = body.dueDate ? new Date(body.dueDate) : null;
-      const updated = await prisma.invoice.update({ where: { id: rest[1] }, data });
+      const updateData: Prisma.InvoiceUpdateInput = {};
+      if (data.status !== undefined) updateData.status = data.status;
+      if (data.paidAmount !== undefined) updateData.paidAmount = data.paidAmount as number;
+      if (data.invoiceNumber !== undefined) updateData.invoiceNumber = data.invoiceNumber;
+      if (data.clientId === null) updateData.client = { disconnect: true };
+      else if (data.clientId !== undefined) updateData.client = { connect: { id: data.clientId } };
+      if (data.dueDate !== undefined) updateData.dueDate = data.dueDate;
+      const updated = await prisma.invoice.update({ where: { id: rest[1] }, data: updateData });
       const total = Number(updated.amount);
       const paid = Number(updated.paidAmount);
       if (paid >= total && total > 0) await prisma.invoice.update({ where: { id: rest[1] }, data: { status: 'paid' } });
