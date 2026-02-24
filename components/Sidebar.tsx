@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -13,7 +14,6 @@ import {
   FileCheck,
   BookOpen,
   Settings,
-  Scale,
 } from 'lucide-react';
 
 const nav = [
@@ -33,19 +33,28 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-[240px] min-h-screen flex flex-col bg-navy shrink-0">
-      <div className="p-5">
-        <Link href="/dashboard" className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-gold flex items-center justify-center text-navy shadow-lg">
-            <Scale className="w-6 h-6" strokeWidth={2.2} />
-          </div>
-          <div>
-            <span className="font-bold text-white block leading-tight text-[15px]">Firma Hukum</span>
-            <span className="text-[11px] text-slate-400 uppercase tracking-widest">Admin</span>
+    <aside className="w-[260px] min-h-screen flex flex-col bg-[#0a1628] shrink-0 border-r border-[#1e3a5f]/60 shadow-xl">
+      <div className="p-5 border-b border-[#1e3a5f]/50">
+        <Link href="/dashboard" className="flex items-center gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 rounded-lg">
+          <Image
+            src="/logoapplagio.png"
+            alt="LEGALTECH"
+            width={44}
+            height={44}
+            className="object-contain shrink-0"
+            priority
+          />
+          <div className="min-w-0">
+            <span className="font-semibold text-white block leading-tight text-[15px] tracking-tight">
+              LEGALTECH
+            </span>
+            <span className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">
+              Admin Panel
+            </span>
           </div>
         </Link>
       </div>
-      <nav className="flex-1 px-3 pb-4 overflow-y-auto sidebar-scroll">
+      <nav className="flex-1 px-3 py-4 overflow-y-auto sidebar-scroll">
         <ul className="space-y-0.5">
           {nav.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href || pathname.startsWith(href + '/');
@@ -53,10 +62,10 @@ export default function Sidebar() {
               <li key={href}>
                 <Link
                   href={href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 ${
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 border ${
                     isActive
-                      ? 'bg-gold/20 text-gold-light border border-gold/30'
-                      : 'text-slate-300 hover:bg-navy-light hover:text-white border border-transparent'
+                      ? 'bg-gold/15 text-gold border-gold/40'
+                      : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border-transparent'
                   }`}
                 >
                   <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={isActive ? 2.2 : 1.8} />
@@ -67,8 +76,8 @@ export default function Sidebar() {
           })}
         </ul>
       </nav>
-      <div className="p-3 border-t border-navy-border">
-        <p className="px-3 text-[11px] text-slate-500">Panel operasional</p>
+      <div className="p-3 border-t border-[#1e3a5f]/50 bg-[#071018]/50">
+        <p className="px-3 text-[11px] text-slate-500 font-medium">Panel operasional</p>
       </div>
     </aside>
   );

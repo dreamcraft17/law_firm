@@ -5,7 +5,7 @@
 :root {
   --navy: #0c1929;
   --gold: #c9a227;
-  --surface: #f1f5f9;
+  --surface: #f8fafc;
 }
 
 body {
@@ -19,7 +19,8 @@ body {
   background: transparent;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  @apply bg-navy-border rounded-full;
+  background: rgba(30, 58, 95, 0.5);
+  border-radius: 9999px;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
   background: #2a4a6e;
