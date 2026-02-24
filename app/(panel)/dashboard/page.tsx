@@ -174,7 +174,7 @@ export default function DashboardPage() {
                       <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12, fill: '#475569' }} />
                       <Tooltip
                         cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-                        formatter={(value: number) => [value, 'Jumlah']}
+                        formatter={(value: number | undefined) => [value ?? 0, 'Jumlah']}
                         contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
                       />
                       <Bar dataKey="jumlah" radius={[0, 4, 4, 0]} maxBarSize={36} />
@@ -206,9 +206,9 @@ export default function DashboardPage() {
                     <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#64748b' }} />
                     <Tooltip
                       contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
-                      formatter={(value: number, name: string) => [
-                        name === 'Revenue' ? formatRp(value) : value,
-                        name === 'Revenue' ? 'Revenue' : 'Perkara',
+                      formatter={(value: number | undefined, name: string) => [
+                        name === 'revenue' ? formatRp(value ?? 0) : value ?? 0,
+                        name === 'revenue' ? 'Revenue' : 'Perkara',
                       ]}
                       labelFormatter={(label) => label}
                     />
