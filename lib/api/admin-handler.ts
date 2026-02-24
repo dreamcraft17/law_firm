@@ -168,7 +168,7 @@ async function handleUsers(rest: string[], method: string, request: NextRequest)
     return NextResponse.json({ data: list.map(omitPassword) });
   }
   if (method === 'POST') {
-    let body: { email: string; name?: string; role?: string; password: string } = { email: '', password: '' };
+    let body: { email: string; name?: string; role?: string; roleId?: string | null; password: string } = { email: '', password: '' };
     try {
       body = await request.json();
     } catch {
