@@ -23,7 +23,7 @@ export async function getAuthFromRequest(request: NextRequest, source: 'admin' |
 
   const session = await prisma.session.findFirst({
     where: { token, source, expiresAt: { gt: new Date() } },
-    include: { user: { include: { roleRef: { include: { permissions: { include: { permission: true } } } } } },
+    include: { user: { include: { roleRef: { include: { permissions: { include: { permission: true } } } } } } },
   });
   if (!session?.user || session.user.deletedAt) return null;
 
@@ -63,13 +63,13 @@ export function requirePermission(auth: AuthUser | null, permission: string): Au
   return a;
 }
 
-export async function createSession(userId: string, source: 'admin' | 'mobile'): Promise<string> {
+export async function createSession(userId: string, source: 'admin' | 'mobile', refreshToken?: string): Promise<string> {
   const crypto = await import('crypto');
   const token = source === 'admin' ? `admin_${crypto.randomBytes(24).toString('hex')}` : `mobile_${crypto.randomBytes(24).toString('hex')}`;
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + SESSION_EXPIRY_DAYS);
   await prisma.session.create({
-    data: { userId, token, source, expiresAt },
+    data: { userId, token, source, expiresAt, refreshToken: refreshToken ?? null },
   });
   return token;
 }

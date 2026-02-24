@@ -91,8 +91,8 @@ async function handleAuth(
       return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
     }
     await prisma.auditLog.create({ data: { userId: user.id, action: 'login', entity: 'user', entityId: user.id, details: { email: user.email } } }).catch(() => {});
-    const token = await createSession(user.id, 'mobile');
     const refreshToken = `mobile_refresh_${crypto.randomBytes(24).toString('hex')}`;
+    const token = await createSession(user.id, 'mobile', refreshToken);
     const userWithRole = await prisma.user.findFirst({
       where: { id: user.id },
       include: { roleRef: { include: { permissions: { include: { permission: true } } } } },
@@ -122,9 +122,22 @@ async function handleAuth(
     const body = await request.json().catch(() => ({}));
     const refresh = body.refresh_token;
     if (!refresh) return NextResponse.json({ error: 'refresh_token required' }, { status: 400 });
+    const session = await prisma.session.findFirst({
+      where: { refreshToken: refresh, source: 'mobile' },
+      include: { user: { select: { id: true } } },
+    });
+    if (!session) return NextResponse.json({ error: 'Invalid refresh token' }, { status: 401 });
+    const newToken = `mobile_${crypto.randomBytes(24).toString('hex')}`;
+    const newRefresh = `mobile_refresh_${crypto.randomBytes(24).toString('hex')}`;
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+    await prisma.session.delete({ where: { id: session.id } }).catch(() => {});
+    await prisma.session.create({
+      data: { userId: session.userId, token: newToken, refreshToken: newRefresh, source: 'mobile', expiresAt },
+    });
     return NextResponse.json({
-      access_token: `mobile_${crypto.randomBytes(24).toString('hex')}`,
-      refresh_token: refresh,
+      access_token: newToken,
+      refresh_token: newRefresh,
     });
   }
   if (action === 'otp/send' && method === 'POST') {
