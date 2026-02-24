@@ -9,6 +9,7 @@
     "lint": "next lint",
     "prepare-deploy": "node scripts/prepare-deploy.js",
     "db:migrate": "node scripts/run-web-migration.js",
+    "db:migrate:prisma": "node scripts/run-prisma-migrate.js",
     "db:add-case-fields": "node scripts/add-case-fields.js",
     "postinstall": "prisma generate"
   },
