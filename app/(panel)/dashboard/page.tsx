@@ -206,7 +206,7 @@ export default function DashboardPage() {
                     <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#64748b' }} />
                     <Tooltip
                       contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
-                      formatter={(value: number | undefined, name: string) => [
+                      formatter={(value: number | undefined, name: string | undefined) => [
                         name === 'revenue' ? formatRp(value ?? 0) : value ?? 0,
                         name === 'revenue' ? 'Revenue' : 'Perkara',
                       ]}
