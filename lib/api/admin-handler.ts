@@ -230,7 +230,7 @@ async function handleAdminAuthLogin(request: NextRequest): Promise<NextResponse>
   });
 }
 
-async function handlePermissions(rest: string[], method: string): Promise<NextResponse> {
+async function handlePermissions(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
   if (method !== 'GET') return methodNotAllowed();
   const list = await prisma.permission.findMany({ orderBy: { key: 'asc' } });
   return NextResponse.json({ data: list });
