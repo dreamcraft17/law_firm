@@ -858,8 +858,8 @@ async function handleDocumentFileUpload(request: NextRequest): Promise<NextRespo
 
       if (hasBlobToken) {
         const { put } = await import('@vercel/blob');
-        const blob = await put(`documents/${Date.now()}-${safeName}`, file, { access: 'public' });
-        fileUrl = blob.url;
+        const { url } = await put(`documents/${Date.now()}-${safeName}`, file, { access: 'public' });
+        fileUrl = url;
       } else {
         const uploadDir = path.join(process.cwd(), 'public', 'uploads');
         try {
