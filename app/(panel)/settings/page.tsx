@@ -39,22 +39,22 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <p className="text-gray-600 mb-4">W9 — System Configuration</p>
+      <p className="text-slate-500 mb-6">W9 — System Configuration</p>
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>
       )}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="font-semibold text-gray-800 mb-3">Pengaturan Sistem</h2>
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-card">
+        <h2 className="font-semibold text-slate-800 mb-4">Pengaturan Sistem</h2>
         {loading ? (
-          <div className="text-gray-500">Memuat...</div>
+          <div className="text-slate-500">Memuat...</div>
         ) : list.length === 0 ? (
-          <p className="text-sm text-gray-500">Belum ada pengaturan. Konfigurasi disimpan di backend (system_settings).</p>
+          <p className="text-sm text-slate-500">Belum ada pengaturan. Konfigurasi disimpan di backend (system_settings).</p>
         ) : (
           <ul className="space-y-2 text-sm">
             {list.map((s) => (
-              <li key={s.id} className="flex justify-between items-center py-2 border-b border-gray-100">
-                <span className="font-medium">{s.key}</span>
-                <span className="text-gray-500">{s.category}</span>
+              <li key={s.id} className="flex justify-between items-center py-3 border-b border-slate-100 last:border-0">
+                <span className="font-medium text-slate-800">{s.key}</span>
+                <span className="text-slate-500 px-2.5 py-1 rounded-lg bg-slate-100">{s.category}</span>
               </li>
             ))}
           </ul>

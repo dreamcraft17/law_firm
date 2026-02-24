@@ -103,38 +103,38 @@ export default function KnowledgeBasePage() {
 
   return (
     <div>
-      <p className="text-gray-600 mb-4">W8 — Knowledge Base & Template Manager</p>
+      <p className="text-slate-500 mb-6">W8 — Knowledge Base & Template Manager</p>
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>
       )}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="font-semibold text-gray-800">Template & Referensi</h2>
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-card">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="font-semibold text-slate-800">Template & Referensi</h2>
           <button
             type="button"
             onClick={openAdd}
-            className="px-4 py-2 bg-[#1B4965] text-white rounded-lg text-sm hover:opacity-90"
+            className="px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary-light transition-colors shadow-panel"
           >
             Tambah Entri
           </button>
         </div>
         {loading ? (
-          <div className="text-gray-500">Memuat...</div>
+          <div className="text-slate-500">Memuat...</div>
         ) : list.length === 0 ? (
-          <p className="text-sm text-gray-500">Belum ada entri. Klik &quot;Tambah Entri&quot; untuk menambah template dokumen, clause library, atau precedent.</p>
+          <p className="text-sm text-slate-500">Belum ada entri. Klik &quot;Tambah Entri&quot; untuk menambah template dokumen, clause library, atau precedent.</p>
         ) : (
           <ul className="space-y-2 text-sm">
             {list.map((item) => (
-              <li key={item.id} className="flex justify-between items-center py-2 border-b border-gray-100">
+              <li key={item.id} className="flex justify-between items-center py-3 border-b border-slate-100 last:border-0">
                 <div>
-                  <span className="font-medium">{item.key}</span>
-                  {item.description && <span className="text-gray-500 ml-2">— {item.description}</span>}
+                  <span className="font-medium text-slate-800">{item.key}</span>
+                  {item.description && <span className="text-slate-500 ml-2">— {item.description}</span>}
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => openEdit(item)} className="text-[#1B4965] hover:underline">
+                  <button type="button" onClick={() => openEdit(item)} className="text-primary hover:underline font-medium">
                     Edit
                   </button>
-                  <button type="button" onClick={() => setDeleteConfirm(item)} className="text-red-600 hover:underline">
+                  <button type="button" onClick={() => setDeleteConfirm(item)} className="text-red-600 hover:underline font-medium">
                     Hapus
                   </button>
                 </div>
@@ -145,46 +145,46 @@ export default function KnowledgeBasePage() {
       </div>
 
       {modalOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
-            <h3 className="font-semibold text-gray-800 mb-4">{editing ? 'Edit entri' : 'Tambah entri'}</h3>
-            <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200">
+            <h3 className="font-semibold text-slate-800 mb-4">{editing ? 'Edit entri' : 'Tambah entri'}</h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Key (slug)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Key (slug)</label>
                 <input
                   type="text"
                   value={formKey}
                   onChange={(e) => setFormKey(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 disabled:bg-slate-100"
                   placeholder="contoh: template-gugatan"
                   required
                   disabled={!!editing}
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Deskripsi</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Deskripsi</label>
                 <input
                   type="text"
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
                   placeholder="Deskripsi singkat"
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Value (JSON atau teks)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Value (JSON atau teks)</label>
                 <textarea
                   value={formValue}
                   onChange={(e) => setFormValue(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 h-32 font-mono text-sm"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 h-32 font-mono text-sm focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
                   placeholder='{"content": "..."} atau teks biasa'
                 />
               </div>
               <div className="flex gap-2 pt-2">
-                <button type="submit" disabled={saving} className="px-4 py-2 bg-[#1B4965] text-white rounded-lg text-sm hover:opacity-90 disabled:opacity-50">
+                <button type="submit" disabled={saving} className="px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary-light transition-colors disabled:opacity-50">
                   {saving ? 'Menyimpan...' : 'Simpan'}
                 </button>
-                <button type="button" onClick={() => setModalOpen(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm">
+                <button type="button" onClick={() => setModalOpen(false)} className="px-4 py-2.5 border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 text-sm">
                   Batal
                 </button>
               </div>
@@ -194,14 +194,14 @@ export default function KnowledgeBasePage() {
       )}
 
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6">
-            <p className="text-gray-700 mb-4">Hapus &quot;{deleteConfirm.key}&quot;?</p>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 border border-slate-200">
+            <p className="text-slate-700 mb-4">Hapus &quot;{deleteConfirm.key}&quot;?</p>
             <div className="flex gap-2">
-              <button type="button" onClick={() => handleDelete(deleteConfirm)} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm">
+              <button type="button" onClick={() => handleDelete(deleteConfirm)} className="px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700">
                 Ya, hapus
               </button>
-              <button type="button" onClick={() => setDeleteConfirm(null)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm">
+              <button type="button" onClick={() => setDeleteConfirm(null)} className="px-4 py-2.5 border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 text-sm">
                 Batal
               </button>
             </div>
