@@ -1,9 +1,18 @@
 # Migrasi Database — M1 Client, M2 Time Tracking, M3 Expense
 
-Setelah mengubah `schema.prisma`, jalankan:
+File migrasi sudah ada di:
+`prisma/migrations/20250116000000_add_m1_m2_m3_client_time_expense/migration.sql`
+
+Untuk **menyesuaikan database** (apply migrasi), jalankan dengan `DATABASE_URL` terisi (mis. dari `.env` atau `.env.local`):
 
 ```bash
 cd admin-web
+# Pastikan DATABASE_URL ada di .env (copy dari .env.local jika perlu)
+npx prisma migrate deploy
+```
+
+Atau untuk development (buat migration baru + apply):
+```bash
 npx prisma migrate dev --name add_m1_m2_m3_client_time_expense
 ```
 
