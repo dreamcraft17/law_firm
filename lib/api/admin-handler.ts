@@ -810,6 +810,14 @@ async function handleRateCards(rest: string[], method: string, request: NextRequ
   return methodNotAllowed();
 }
 
+const DOCUMENT_MAX_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB (Vercel request body ~4.5 MB)
+const DOCUMENT_ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg', '.gif', '.webp'];
+
+function isAllowedDocumentFilename(name: string): boolean {
+  const lower = name.toLowerCase();
+  return DOCUMENT_ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
 async function handleDocumentFileUpload(request: NextRequest): Promise<NextResponse> {
   try {
     const formData = await request.formData();
@@ -825,6 +833,20 @@ async function handleDocumentFileUpload(request: NextRequest): Promise<NextRespo
     }
     if (files.length === 0) {
       return NextResponse.json({ error: 'Pilih minimal satu file' }, { status: 400 });
+    }
+    for (const file of files) {
+      if (file.size > DOCUMENT_MAX_SIZE_BYTES) {
+        return NextResponse.json(
+          { error: `File "${file.name}" melebihi batas ${DOCUMENT_MAX_SIZE_BYTES / 1024 / 1024} MB` },
+          { status: 400 }
+        );
+      }
+      if (!isAllowedDocumentFilename(file.name)) {
+        return NextResponse.json(
+          { error: `Format file "${file.name}" tidak diizinkan. Gunakan: ${DOCUMENT_ALLOWED_EXTENSIONS.join(', ')}` },
+          { status: 400 }
+        );
+      }
     }
     const created: { id: string; name: string; fileUrl: string | null }[] = [];
     for (const file of files) {

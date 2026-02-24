@@ -126,22 +126,32 @@ export default function DocumentsPage() {
             />
           </div>
           <div className="mb-3">
-            <label className="block text-sm text-gray-600 mb-1">Pilih file (PDF, DOC, dll.)</label>
+            <label className="block text-sm text-gray-600 mb-1">Pilih file</label>
+            <p className="text-xs text-gray-500 mb-1">Maks. 4 MB per file. Format: PDF, DOC, DOCX, XLS, XLSX, TXT, PNG, JPG, JPEG, GIF, WEBP</p>
             <input
               id="doc-file-input"
               type="file"
               multiple
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.gif,.webp"
               onChange={(e) => setSelectedFiles(e.target.files)}
               className="border border-gray-300 rounded-lg px-3 py-2 w-full max-w-md file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#1B4965] file:text-white file:text-sm"
             />
             {selectedFiles?.length ? (
-              <p className="text-sm text-gray-500 mt-1">{selectedFiles.length} file dipilih</p>
+              <p className="text-sm text-gray-500 mt-1">
+                {selectedFiles.length} file dipilih
+                {Array.from(selectedFiles).some((f) => f.size > 4 * 1024 * 1024)
+                  ? ' — ada file yang melebihi 4 MB'
+                  : ''}
+              </p>
             ) : null}
           </div>
           <button
             type="submit"
-            disabled={uploading || !selectedFiles?.length}
+            disabled={
+              uploading ||
+              !selectedFiles?.length ||
+              Array.from(selectedFiles).some((f) => f.size > 4 * 1024 * 1024)
+            }
             className="px-4 py-2 bg-[#1B4965] text-white rounded-lg text-sm disabled:opacity-50"
           >
             {uploading ? 'Mengupload...' : 'Upload File'}
