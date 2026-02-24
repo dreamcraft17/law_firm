@@ -17,6 +17,9 @@ export const ApiPaths = {
   /** /admin/roles/* */
   roles: 'admin/roles',
 
+  /** /admin/clients/* (M1) */
+  clients: 'admin/clients',
+
   /** /admin/cases/* */
   cases: 'admin/cases',
 
@@ -25,6 +28,15 @@ export const ApiPaths = {
 
   /** /admin/tasks/* */
   tasks: 'admin/tasks',
+
+  /** /admin/time-entries/* (M2) */
+  timeEntries: 'admin/time-entries',
+
+  /** /admin/expenses/* (M3) */
+  expenses: 'admin/expenses',
+
+  /** /admin/rate-cards/* */
+  rateCards: 'admin/rate-cards',
 
   /** /admin/billing/* */
   billing: 'admin/billing',
@@ -55,6 +67,14 @@ export const adminEndpoints = {
   roleDetail: (id: string) => `${ApiPaths.roles}/${id}`,
   rolePermissions: (id: string) => `${ApiPaths.roles}/${id}/permissions`,
 
+  // Clients (M1)
+  clientsList: () => ApiPaths.clients,
+  clientDetail: (id: string) => `${ApiPaths.clients}/${id}`,
+  clientContacts: (id: string) => `${ApiPaths.clients}/${id}/contacts`,
+  clientCreate: () => ApiPaths.clients,
+  clientUpdate: (id: string) => `${ApiPaths.clients}/${id}`,
+  clientDelete: (id: string) => `${ApiPaths.clients}/${id}`,
+
   // Cases (W2)
   casesList: () => ApiPaths.cases,
   caseDetail: (id: string) => `${ApiPaths.cases}/${id}`,
@@ -78,6 +98,22 @@ export const adminEndpoints = {
   taskUpdate: (id: string) => `${ApiPaths.tasks}/${id}`,
   taskDelete: (id: string) => `${ApiPaths.tasks}/${id}`,
   tasksByCase: (caseId: string) => `${ApiPaths.tasks}/case/${caseId}`,
+
+  // Time entries (M2)
+  timeEntriesList: () => ApiPaths.timeEntries,
+  timeEntriesByCase: (caseId: string) => `${ApiPaths.timeEntries}/case/${caseId}`,
+  timeEntryDetail: (id: string) => `${ApiPaths.timeEntries}/${id}`,
+  timeEntryApprove: (id: string) => `${ApiPaths.timeEntries}/${id}/approve`,
+
+  // Expenses (M3)
+  expensesList: () => ApiPaths.expenses,
+  expensesByCase: (caseId: string) => `${ApiPaths.expenses}/case/${caseId}`,
+  expenseDetail: (id: string) => `${ApiPaths.expenses}/${id}`,
+  expenseApprove: (id: string) => `${ApiPaths.expenses}/${id}/approve`,
+
+  // Rate cards
+  rateCardsList: () => ApiPaths.rateCards,
+  rateCardDetail: (id: string) => `${ApiPaths.rateCards}/${id}`,
 
   // Billing (W5)
   billingInvoices: () => `${ApiPaths.billing}/invoices`,

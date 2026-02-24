@@ -21,10 +21,48 @@ model User {
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  casesAsClient Case[]              @relation("CaseClient")
   lawyerMetrics LawyerPerformanceMetric[]
+  timeEntries   TimeEntry[]
+  rateCards     RateCard[]
 
   @@map("users")
+}
+
+// --- M1: Client Management ---
+model Client {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type          String    @default("individual") @db.VarChar(32) // individual | company
+  name          String    @db.VarChar(500)
+  billingAddress String?  @map("billing_address") @db.Text
+  npwp          String?   @db.VarChar(64)
+  status        String    @default("active") @db.VarChar(32) // active | inactive
+  internalNotes String?   @map("internal_notes") @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  contacts ClientContact[]
+  cases    Case[]
+  invoices Invoice[]
+
+  @@map("clients")
+}
+
+model ClientContact {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId  String   @map("client_id") @db.Uuid
+  name      String   @db.VarChar(255)
+  email     String?  @db.VarChar(255)
+  phone     String?  @db.VarChar(64)
+  role      String?  @db.VarChar(64) // e.g. PIC, Direktur
+  isPrimary Boolean  @default(false) @map("is_primary") @db.Boolean
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@map("client_contacts")
 }
 
 model Case {
@@ -33,37 +71,55 @@ model Case {
   caseNumber  String?  @map("case_number") @db.VarChar(100)
   description String?  @db.Text
   status      String   @default("pending") @db.VarChar(64)
+  stage       String   @default("intake") @db.VarChar(32) // intake | active | on_hold | closed
   clientId    String?  @map("client_id") @db.Uuid
+  parties     Json?    @db.JsonB // { plaintiff?, defendant?, instansi? }
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  client   User?   @relation("CaseClient", fields: [clientId], references: [id])
-  riskScores CaseRiskScore[]
+  client      Client?   @relation(fields: [clientId], references: [id])
+  riskScores  CaseRiskScore[]
+  timeEntries TimeEntry[]
+  expenses    CaseExpense[]
+  tasks       Task[]
+  documents   Document[]
 
   @@map("cases")
 }
 
 // --- Mobile: tasks, documents, events, invoices, notifications ---
 model Task {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  caseId    String?  @map("case_id") @db.Uuid
-  title     String   @db.VarChar(500)
-  status    String   @default("pending") @db.VarChar(64)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId      String?   @map("case_id") @db.Uuid
+  title       String    @db.VarChar(500)
+  description String?   @db.Text
+  status      String    @default("pending") @db.VarChar(64)
+  dueDate     DateTime? @map("due_date") @db.Timestamptz(6)
+  slaBreachAt DateTime? @map("sla_breach_at") @db.Timestamptz(6)
+  assigneeId  String?   @map("assignee_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  case Case? @relation(fields: [caseId], references: [id])
+  timeEntries TimeEntry[]
 
   @@map("tasks")
 }
 
 model Document {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  caseId    String?  @map("case_id") @db.Uuid
-  name      String   @db.VarChar(500)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId        String?  @map("case_id") @db.Uuid
+  name          String   @db.VarChar(500)
+  folder        String?  @db.VarChar(255)
+  version       Int      @default(1) @db.SmallInt
+  clientVisible Boolean  @default(false) @map("client_visible") @db.Boolean
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  case Case? @relation(fields: [caseId], references: [id])
 
   @@map("documents")
 }
@@ -82,14 +138,78 @@ model Event {
 }
 
 model Invoice {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  status    String   @default("draft") @db.VarChar(64)
-  amount    Decimal  @default(0) @db.Decimal(18, 2)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invoiceNumber String?   @unique @map("invoice_number") @db.VarChar(64)
+  status        String    @default("draft") @db.VarChar(32) // draft | sent | partial_paid | paid | overdue | void
+  amount        Decimal   @default(0) @db.Decimal(18, 2)
+  paidAmount    Decimal   @default(0) @map("paid_amount") @db.Decimal(18, 2)
+  clientId      String?   @map("client_id") @db.Uuid
+  dueDate       DateTime? @map("due_date") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  client   Client?       @relation(fields: [clientId], references: [id])
+  expenses CaseExpense[]
 
   @@map("invoices")
+}
+
+// --- M2: Time Tracking ---
+model TimeEntry {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId     String    @map("case_id") @db.Uuid
+  taskId     String?   @map("task_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  description String?  @db.Text
+  hours      Decimal   @db.Decimal(6, 2)
+  billable   Boolean   @default(true) @db.Boolean
+  rate       Decimal?  @db.Decimal(18, 2)
+  approvedAt DateTime? @map("approved_at") @db.Timestamptz(6)
+  workDate   DateTime  @map("work_date") @db.Date
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  case Case  @relation(fields: [caseId], references: [id])
+  task Task? @relation(fields: [taskId], references: [id])
+  user User  @relation(fields: [userId], references: [id])
+
+  @@map("time_entries")
+}
+
+model RateCard {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  rate         Decimal   @db.Decimal(18, 2)
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("rate_cards")
+}
+
+// --- M3: Expense per Case ---
+model CaseExpense {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId       String    @map("case_id") @db.Uuid
+  description  String    @db.VarChar(500)
+  amount       Decimal   @db.Decimal(18, 2)
+  proofUrl     String?   @map("proof_url") @db.VarChar(500)
+  reimbursable Boolean   @default(false) @db.Boolean
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz(6)
+  invoiceId    String?   @map("invoice_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  case    Case     @relation(fields: [caseId], references: [id])
+  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+
+  @@map("case_expenses")
 }
 
 model Notification {

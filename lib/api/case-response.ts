@@ -12,7 +12,7 @@ type CaseWithClient = {
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date | null;
-  client?: { id: string; email: string; name: string | null } | null;
+  client?: { id: string; name: string; type?: string } | null;
 };
 
 export function normalizeCaseForResponse(c: CaseWithClient): Record<string, unknown> {

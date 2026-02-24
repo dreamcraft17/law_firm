@@ -19,12 +19,18 @@ export async function handleMobile(
     switch (group) {
       case 'auth':
         return handleAuth(rest, method, request);
+      case 'clients':
+        return handleMobileClients(rest, method);
       case 'cases':
         return handleCases(rest, method, request);
       case 'tasks':
         return handleTasks(rest, method, request);
       case 'documents':
         return handleDocuments(rest, method, request);
+      case 'time-entries':
+        return handleMobileTimeEntries(rest, method, request);
+      case 'expenses':
+        return handleMobileExpenses(rest, method, request);
       case 'events':
         return handleEvents(rest, method, request);
       case 'invoices':
@@ -134,6 +140,89 @@ async function handleAuth(
   return NextResponse.json({ error: 'Not found' }, { status: 404 });
 }
 
+// --- M1: Clients (read-only for mobile) ---
+async function handleMobileClients(rest: string[], method: string): Promise<NextResponse> {
+  if (method !== 'GET') return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
+  const id = rest[0];
+  if (id) {
+    const c = await prisma.client.findFirst({
+      where: { id, deletedAt: null, status: 'active' },
+      include: { contacts: { where: { deletedAt: null } } },
+    });
+    return c ? NextResponse.json(c) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+  const list = await prisma.client.findMany({
+    where: { deletedAt: null, status: 'active' },
+    orderBy: { name: 'asc' },
+    take: 200,
+  });
+  return NextResponse.json({ data: list });
+}
+
+// --- M2: Time entries (mobile: list by case, create) ---
+async function handleMobileTimeEntries(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  if (rest[0] === 'case' && rest[1] && method === 'GET') {
+    const list = await prisma.timeEntry.findMany({
+      where: { caseId: rest[1], deletedAt: null },
+      orderBy: { workDate: 'desc' },
+      include: { user: { select: { id: true, name: true } } },
+    });
+    return NextResponse.json({ data: list });
+  }
+  if (method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      if (!body.caseId || body.hours == null) return NextResponse.json({ error: 'caseId and hours required' }, { status: 400 });
+      const e = await prisma.timeEntry.create({
+        data: {
+          caseId: body.caseId,
+          taskId: body.taskId ?? null,
+          userId: body.userId ?? (await prisma.user.findFirst({ where: { deletedAt: null }, select: { id: true } }))?.id!,
+          description: body.description ?? null,
+          hours: Number(body.hours),
+          billable: body.billable !== false,
+          rate: body.rate != null ? Number(body.rate) : null,
+          workDate: body.workDate ? new Date(body.workDate) : new Date(),
+        },
+      });
+      return NextResponse.json(e, { status: 201 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+  return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
+}
+
+// --- M3: Expenses (mobile: list by case, create) ---
+async function handleMobileExpenses(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  if (rest[0] === 'case' && rest[1] && method === 'GET') {
+    const list = await prisma.caseExpense.findMany({
+      where: { caseId: rest[1], deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    return NextResponse.json({ data: list });
+  }
+  if (method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      if (!body.caseId || body.amount == null) return NextResponse.json({ error: 'caseId and amount required' }, { status: 400 });
+      const e = await prisma.caseExpense.create({
+        data: {
+          caseId: body.caseId,
+          description: body.description ?? 'Expense',
+          amount: Number(body.amount),
+          proofUrl: body.proofUrl ?? null,
+          reimbursable: !!body.reimbursable,
+        },
+      });
+      return NextResponse.json(e, { status: 201 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+  return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
+}
+
 async function handleCases(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
   const id = rest[0];
   
@@ -170,23 +259,15 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           );
         }
 
-        // Handle client lookup/creation by name
+        // Handle client lookup/creation by name (master Client)
         let clientId = body.clientId;
         if (body.client_name && !clientId) {
-          // Find or create client by name
-          // First try to find by name
-          let client = await prisma.user.findFirst({
-            where: { name: body.client_name }
+          let client = await prisma.client.findFirst({
+            where: { name: body.client_name, deletedAt: null },
           });
-          
-          // If not found, create new client
           if (!client) {
-            client = await prisma.user.create({
-              data: { 
-                name: body.client_name,
-                email: `${body.client_name.toLowerCase().replace(/\s+/g, '.')}.${Date.now()}@client.local`,
-                role: 'staff' // Using existing role from schema
-              }
+            client = await prisma.client.create({
+              data: { name: body.client_name, type: 'individual', status: 'active' },
             });
           }
           clientId = client.id;
@@ -268,14 +349,10 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         const body = await request.json();
         let clientId: string | null | undefined = body.clientId;
         if (body.client_name && clientId == null) {
-          let client = await prisma.user.findFirst({ where: { name: body.client_name, deletedAt: null } });
+          let client = await prisma.client.findFirst({ where: { name: body.client_name, deletedAt: null } });
           if (!client) {
-            client = await prisma.user.create({
-              data: {
-                name: body.client_name,
-                email: `${String(body.client_name).toLowerCase().replace(/\s+/g, '.')}.${Date.now()}@client.local`,
-                role: 'client',
-              },
+            client = await prisma.client.create({
+              data: { name: body.client_name, type: 'individual', status: 'active' },
             });
           }
           clientId = client.id;

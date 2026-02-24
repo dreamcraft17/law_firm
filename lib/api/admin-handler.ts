@@ -27,12 +27,20 @@ export async function handleAdmin(
         return handleUsers(rest, method, request);
       case 'roles':
         return handleRoles(rest, method, request);
+      case 'clients':
+        return handleClients(rest, method, request);
       case 'cases':
         return handleCases(rest, method, request);
       case 'documents':
         return handleDocuments(rest, method, request);
       case 'tasks':
         return handleTasks(rest, method, request);
+      case 'time-entries':
+        return handleTimeEntries(rest, method, request);
+      case 'expenses':
+        return handleExpenses(rest, method, request);
+      case 'rate-cards':
+        return handleRateCards(rest, method, request);
       case 'billing':
         return handleBilling(rest, method, request);
       case 'reports':
@@ -137,19 +145,110 @@ async function handleRoles(rest: string[], method: string, _request: NextRequest
   return NextResponse.json({ data: roles.map((r) => ({ id: r.role, name: r.role })) });
 }
 
-/** Resolve clientId dari client_name (find or create) untuk case create/update. */
+// --- M1: Client Management ---
+async function handleClients(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const id = rest[0];
+  if (id && id !== 'contacts') {
+    if (rest[1] === 'contacts') {
+      const clientId = id;
+      if (method === 'GET') {
+        const list = await prisma.clientContact.findMany({
+          where: { clientId, deletedAt: null },
+          orderBy: { isPrimary: 'desc' },
+        });
+        return NextResponse.json({ data: list });
+      }
+      if (method === 'POST') {
+        try {
+          const body = await request.json().catch(() => ({}));
+          const c = await prisma.clientContact.create({
+            data: {
+              clientId,
+              name: body.name ?? '',
+              email: body.email ?? null,
+              phone: body.phone ?? null,
+              role: body.role ?? null,
+              isPrimary: !!body.isPrimary,
+            },
+          });
+          return NextResponse.json(c, { status: 201 });
+        } catch (e) {
+          return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+        }
+      }
+      return methodNotAllowed();
+    }
+    if (method === 'GET') {
+      const c = await prisma.client.findFirst({
+        where: { id, deletedAt: null },
+        include: { contacts: { where: { deletedAt: null } } },
+      });
+      return c ? NextResponse.json(c) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    if (method === 'PUT' || method === 'PATCH') {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const data: { name?: string; type?: string; billingAddress?: string | null; npwp?: string | null; status?: string; internalNotes?: string | null } = {};
+        if (body.name !== undefined) data.name = body.name;
+        if (body.type !== undefined) data.type = body.type;
+        if (body.billingAddress !== undefined) data.billingAddress = body.billingAddress;
+        if (body.npwp !== undefined) data.npwp = body.npwp;
+        if (body.status !== undefined) data.status = body.status;
+        if (body.internalNotes !== undefined) data.internalNotes = body.internalNotes;
+        const c = await prisma.client.update({ where: { id }, data });
+        return NextResponse.json(c);
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+      }
+    }
+    if (method === 'DELETE') {
+      const c = await prisma.client.findFirst({ where: { id, deletedAt: null } });
+      if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      await prisma.client.update({ where: { id }, data: { deletedAt: new Date() } });
+      return NextResponse.json({ message: 'OK' });
+    }
+    return methodNotAllowed();
+  }
+  if (method === 'GET') {
+    const list = await prisma.client.findMany({
+      where: { deletedAt: null },
+      orderBy: { name: 'asc' },
+      take: 500,
+      include: { _count: { select: { cases: true } } },
+    });
+    return NextResponse.json({ data: list });
+  }
+  if (method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      if (!body.name) return NextResponse.json({ error: 'name required' }, { status: 400 });
+      const c = await prisma.client.create({
+        data: {
+          name: body.name,
+          type: body.type ?? 'individual',
+          billingAddress: body.billingAddress ?? null,
+          npwp: body.npwp ?? null,
+          status: body.status ?? 'active',
+          internalNotes: body.internalNotes ?? null,
+        },
+      });
+      return NextResponse.json(c, { status: 201 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+  return methodNotAllowed();
+}
+
+/** Resolve clientId dari client_name atau clientId (find or create di master Client). */
 async function resolveClientId(body: { clientId?: string | null; client_name?: string }): Promise<string | null> {
   if (body.clientId) return body.clientId;
   const name = body.client_name?.trim();
   if (!name) return null;
-  let client = await prisma.user.findFirst({ where: { name, deletedAt: null } });
+  let client = await prisma.client.findFirst({ where: { name, deletedAt: null } });
   if (!client) {
-    client = await prisma.user.create({
-      data: {
-        name,
-        email: `${name.toLowerCase().replace(/\s+/g, '.')}.${Date.now()}@client.local`,
-        role: 'client',
-      },
+    client = await prisma.client.create({
+      data: { name, type: 'individual', status: 'active' },
     });
   }
   return client.id;
@@ -175,12 +274,14 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       }
       const existing = await prisma.case.findFirst({ where: { id, deletedAt: null } });
       if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      const data: { title?: string; status?: string; clientId?: string | null; caseNumber?: string | null; description?: string | null } = {};
+      const data: { title?: string; status?: string; stage?: string; clientId?: string | null; caseNumber?: string | null; description?: string | null; parties?: unknown } = {};
       if (body.title !== undefined) data.title = body.title.trim();
       if (body.status !== undefined) data.status = body.status;
+      if (body.stage !== undefined) data.stage = body.stage;
       if (body.clientId !== undefined || body.client_name !== undefined) data.clientId = await resolveClientId(body);
       if (body.caseNumber !== undefined || body.case_number !== undefined) data.caseNumber = (body.caseNumber ?? body.case_number)?.trim() || null;
       if (body.description !== undefined) data.description = body.description?.trim() || null;
+      if (body.parties !== undefined) data.parties = body.parties;
       const c = await prisma.case.update({
         where: { id },
         data,
@@ -248,9 +349,11 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       data: {
         title: body.title.trim(),
         status: body.status?.trim() ?? 'open',
+        stage: body.stage?.trim() ?? 'intake',
         clientId,
         caseNumber: (body.caseNumber ?? body.case_number)?.trim() || null,
         description: body.description?.trim() || null,
+        parties: body.parties ?? null,
       },
       include: { client: true },
     });
@@ -278,10 +381,12 @@ async function handleTasks(rest: string[], method: string, request: NextRequest)
     if (method === 'PUT' || method === 'PATCH') {
       try {
         const body = await request.json().catch(() => ({}));
-        const data: { title?: string; status?: string; caseId?: string | null } = {};
+        const data: { title?: string; status?: string; caseId?: string | null; dueDate?: Date | null; description?: string | null } = {};
         if (body.title !== undefined) data.title = body.title;
         if (body.status !== undefined) data.status = body.status;
         if (body.caseId !== undefined) data.caseId = body.caseId ?? null;
+        if (body.dueDate !== undefined) data.dueDate = body.dueDate ? new Date(body.dueDate) : null;
+        if (body.description !== undefined) data.description = body.description;
         const t = await prisma.task.update({ where: { id }, data });
         return NextResponse.json(t);
       } catch (e) {
@@ -309,9 +414,155 @@ async function handleTasks(rest: string[], method: string, request: NextRequest)
       const body = await request.json().catch(() => ({}));
       if (!body.title) return NextResponse.json({ error: 'title required' }, { status: 400 });
       const t = await prisma.task.create({
-        data: { title: body.title, status: body.status ?? 'pending', caseId: body.caseId ?? null },
+        data: {
+          title: body.title,
+          status: body.status ?? 'pending',
+          caseId: body.caseId ?? null,
+          description: body.description ?? null,
+          dueDate: body.dueDate ? new Date(body.dueDate) : null,
+        },
       });
       return NextResponse.json(t, { status: 201 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+  return methodNotAllowed();
+}
+
+// --- M2: Time Tracking ---
+async function handleTimeEntries(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  if (rest[0] === 'case' && rest[1] && method === 'GET') {
+    const list = await prisma.timeEntry.findMany({
+      where: { caseId: rest[1], deletedAt: null },
+      orderBy: { workDate: 'desc' },
+      include: { user: { select: { id: true, name: true } } },
+    });
+    return NextResponse.json({ data: list });
+  }
+  const id = rest[0];
+  if (id && rest[1] === 'approve' && method === 'POST') {
+    const e = await prisma.timeEntry.findFirst({ where: { id, deletedAt: null } });
+    if (!e) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const updated = await prisma.timeEntry.update({
+      where: { id },
+      data: { approvedAt: new Date() },
+    });
+    return NextResponse.json(updated);
+  }
+  if (id && method === 'GET') {
+    const e = await prisma.timeEntry.findFirst({
+      where: { id, deletedAt: null },
+      include: { case: true, user: true, task: true },
+    });
+    return e ? NextResponse.json(e) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+  if (method === 'GET') {
+    const list = await prisma.timeEntry.findMany({
+      where: { deletedAt: null },
+      orderBy: { workDate: 'desc' },
+      take: 500,
+      include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } } },
+    });
+    return NextResponse.json({ data: list });
+  }
+  if (method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      if (!body.caseId || body.hours == null) return NextResponse.json({ error: 'caseId and hours required' }, { status: 400 });
+      const e = await prisma.timeEntry.create({
+        data: {
+          caseId: body.caseId,
+          taskId: body.taskId ?? null,
+          userId: body.userId ?? (await prisma.user.findFirst({ where: { deletedAt: null }, select: { id: true } }))?.id!,
+          description: body.description ?? null,
+          hours: Number(body.hours),
+          billable: body.billable !== false,
+          rate: body.rate != null ? Number(body.rate) : null,
+          workDate: body.workDate ? new Date(body.workDate) : new Date(),
+        },
+      });
+      return NextResponse.json(e, { status: 201 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+  return methodNotAllowed();
+}
+
+// --- M3: Case Expenses ---
+async function handleExpenses(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const id = rest[0];
+  if (id && rest[1] === 'approve' && method === 'POST') {
+    const e = await prisma.caseExpense.findFirst({ where: { id, deletedAt: null } });
+    if (!e) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const updated = await prisma.caseExpense.update({ where: { id }, data: { approvedAt: new Date() } });
+    return NextResponse.json(updated);
+  }
+  if (id && method === 'GET') {
+    const e = await prisma.caseExpense.findFirst({
+      where: { id, deletedAt: null },
+      include: { case: true },
+    });
+    return e ? NextResponse.json(e) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+  if (rest[0] === 'case' && rest[1] && method === 'GET') {
+    const list = await prisma.caseExpense.findMany({
+      where: { caseId: rest[1], deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    return NextResponse.json({ data: list });
+  }
+  if (method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      if (!body.caseId || body.amount == null) return NextResponse.json({ error: 'caseId and amount required' }, { status: 400 });
+      const e = await prisma.caseExpense.create({
+        data: {
+          caseId: body.caseId,
+          description: body.description ?? 'Expense',
+          amount: Number(body.amount),
+          proofUrl: body.proofUrl ?? null,
+          reimbursable: !!body.reimbursable,
+        },
+      });
+      return NextResponse.json(e, { status: 201 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+  return methodNotAllowed();
+}
+
+// --- Rate cards (per lawyer) ---
+async function handleRateCards(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const id = rest[0];
+  if (id && method === 'GET') {
+    const r = await prisma.rateCard.findFirst({ where: { id } });
+    return r ? NextResponse.json(r) : NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+  if (method === 'GET') {
+    const userId = request.nextUrl.searchParams.get('userId');
+    const list = await prisma.rateCard.findMany({
+      where: userId ? { userId } : {},
+      orderBy: { effectiveFrom: 'desc' },
+      take: 200,
+    });
+    return NextResponse.json({ data: list });
+  }
+  if (method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      if (!body.userId || body.rate == null) return NextResponse.json({ error: 'userId and rate required' }, { status: 400 });
+      const r = await prisma.rateCard.create({
+        data: {
+          userId: body.userId,
+          rate: Number(body.rate),
+          effectiveFrom: body.effectiveFrom ? new Date(body.effectiveFrom) : new Date(),
+          effectiveTo: body.effectiveTo ? new Date(body.effectiveTo) : null,
+        },
+      });
+      return NextResponse.json(r, { status: 201 });
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
     }
@@ -336,9 +587,15 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       if (items.length === 0) return NextResponse.json({ error: 'documents array required' }, { status: 400 });
       const caseId = body.caseId ?? items[0]?.caseId ?? null;
       const created = await prisma.$transaction(
-        items.map((d: { name: string; caseId?: string }) =>
+        items.map((d: { name: string; caseId?: string; folder?: string; clientVisible?: boolean; version?: number }) =>
           prisma.document.create({
-            data: { name: String(d.name ?? 'Unnamed'), caseId: d.caseId ?? caseId },
+            data: {
+              name: String(d.name ?? 'Unnamed'),
+              caseId: d.caseId ?? caseId,
+              folder: d.folder ?? null,
+              clientVisible: !!d.clientVisible,
+              version: d.version ?? 1,
+            },
           })
         )
       );
@@ -370,15 +627,45 @@ async function handleBilling(rest: string[], method: string, request: NextReques
   if (rest[0] === 'invoices' && rest[1] && rest[2] === 'approve' && method === 'POST') {
     const inv = await prisma.invoice.findFirst({ where: { id: rest[1], deletedAt: null } });
     if (!inv) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    const updated = await prisma.invoice.update({ where: { id: rest[1] }, data: { status: 'approved' } });
+    const updated = await prisma.invoice.update({ where: { id: rest[1] }, data: { status: 'sent' } });
     return NextResponse.json(updated);
+  }
+  if (rest[0] === 'invoices' && rest[1] && !rest[2] && (method === 'PUT' || method === 'PATCH')) {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const inv = await prisma.invoice.findFirst({ where: { id: rest[1], deletedAt: null } });
+      if (!inv) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const data: { status?: string; paidAmount?: unknown; invoiceNumber?: string; clientId?: string | null; dueDate?: Date | null } = {};
+      if (body.status !== undefined) data.status = body.status;
+      if (body.paidAmount !== undefined) data.paidAmount = body.paidAmount;
+      if (body.invoiceNumber !== undefined) data.invoiceNumber = body.invoiceNumber;
+      if (body.clientId !== undefined) data.clientId = body.clientId ?? null;
+      if (body.dueDate !== undefined) data.dueDate = body.dueDate ? new Date(body.dueDate) : null;
+      const updated = await prisma.invoice.update({ where: { id: rest[1] }, data });
+      const total = Number(updated.amount);
+      const paid = Number(updated.paidAmount);
+      if (paid >= total && total > 0) await prisma.invoice.update({ where: { id: rest[1] }, data: { status: 'paid' } });
+      else if (paid > 0) await prisma.invoice.update({ where: { id: rest[1] }, data: { status: 'partial_paid' } });
+      return NextResponse.json(await prisma.invoice.findUnique({ where: { id: rest[1] } }));
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
   }
   if (rest[0] === 'invoices' && !rest[1] && method === 'POST') {
     try {
-      const body = await request.json();
+      const body = await request.json().catch(() => ({}));
       const amount = Number(body.amount) || 0;
+      const paidAmount = Number(body.paidAmount) || 0;
+      const invoiceNumber = body.invoiceNumber ?? `INV-${Date.now()}`;
       const inv = await prisma.invoice.create({
-        data: { status: body.status ?? 'draft', amount },
+        data: {
+          status: body.status ?? 'draft',
+          amount,
+          paidAmount,
+          invoiceNumber,
+          clientId: body.clientId ?? null,
+          dueDate: body.dueDate ? new Date(body.dueDate) : null,
+        },
       });
       return NextResponse.json(inv, { status: 201 });
     } catch (e) {
