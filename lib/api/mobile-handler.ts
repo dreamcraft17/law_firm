@@ -108,6 +108,64 @@ async function handleAuth(
   request: NextRequest
 ): Promise<NextResponse> {
   const [action] = rest;
+  if (action === 'register' && method === 'POST') {
+    let body: { name?: string; email?: string; password?: string; phone?: string } = {};
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    const name = body.name?.trim();
+    const email = body.email?.trim()?.toLowerCase();
+    const password = body.password;
+    const phone = (body.phone?.trim() || null) || undefined;
+    if (!name || !email || !password) {
+      return NextResponse.json({ error: 'name, email, dan password wajib' }, { status: 400 });
+    }
+    if (password.length < 6) {
+      return NextResponse.json({ error: 'Password minimal 6 karakter' }, { status: 400 });
+    }
+    const existing = await prisma.user.findFirst({
+      where: { email, deletedAt: null },
+    });
+    if (existing) {
+      return NextResponse.json({ error: 'Email sudah terdaftar' }, { status: 409 });
+    }
+    const client = await prisma.client.create({
+      data: { name, type: 'individual', status: 'active' },
+    });
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await prisma.user.create({
+      data: {
+        email,
+        name,
+        role: 'client',
+        clientId: client.id,
+        passwordHash,
+        phone: phone || null,
+      },
+    });
+    await prisma.auditLog.create({ data: { userId: user.id, action: 'register', entity: 'user', entityId: user.id, details: { email: user.email } } }).catch(() => {});
+    const refreshToken = `mobile_refresh_${crypto.randomBytes(24).toString('hex')}`;
+    const token = await createSession(user.id, 'mobile', refreshToken);
+    const userPayload = mobileUserPayload({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      roleId: user.roleId ?? null,
+      clientId: user.clientId ?? null,
+      phone: user.phone ?? null,
+      avatarUrl: user.avatarUrl ?? null,
+    });
+    return NextResponse.json({
+      access_token: token,
+      refresh_token: refreshToken,
+      user: userPayload,
+      roleId: null,
+      permissions: [],
+    }, { status: 201 });
+  }
   if (action === 'login' && method === 'POST') {
     let body: { email?: string; password?: string } = {};
     try {
