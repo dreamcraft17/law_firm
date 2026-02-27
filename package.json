@@ -12,7 +12,9 @@
     "db:migrate:prisma": "node scripts/run-prisma-migrate.js",
     "db:add-case-fields": "node scripts/add-case-fields.js",
     "db:seed-rbac": "npx ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed-rbac.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -33,10 +35,12 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.0",
+    "jsdom": "^25.0.1",
     "pg": "^8.11.3",
     "postcss": "^8.4.49",
     "prisma": "^5.22.0",
     "tailwindcss": "^3.4.15",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^2.1.9"
   }
 }
