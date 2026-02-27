@@ -146,6 +146,8 @@ model User {
   passwordHash String?   @map("password_hash") @db.VarChar(255)
   totpSecret   String?   @map("totp_secret") @db.VarChar(255)
   totpEnabled  Boolean   @default(false) @map("totp_enabled") @db.Boolean
+  avatarUrl    String?   @map("avatar_url") @db.VarChar(1024)
+  phone        String?   @db.VarChar(64)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)

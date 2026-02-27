@@ -5,11 +5,38 @@
  */
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import { mkdir, writeFile } from 'fs/promises';
+import path from 'path';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthFromRequest, createSession } from '@/lib/auth-helper';
 import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
+
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+const AVATAR_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+function mobileUserPayload(u: {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  roleId: string | null;
+  clientId: string | null;
+  phone: string | null;
+  avatarUrl: string | null;
+}) {
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name ?? '',
+    role: u.role,
+    phone: u.phone ?? null,
+    avatar_url: u.avatarUrl ?? null,
+    role_id: u.roleId ?? null,
+    client_id: u.clientId ?? null,
+  };
+}
 
 export async function handleMobile(
   pathSegments: string[],
@@ -58,6 +85,8 @@ export async function handleMobile(
         return handleSearch(rest, method, request);
       case 'saved-views':
         return handleSavedViews(rest, method, request);
+      case 'profile':
+        return handleProfile(rest, method, request);
       default:
         return NextResponse.json(
           { error: 'Not found', path: pathSegments.join('/') },
@@ -113,15 +142,16 @@ async function handleAuth(
       include: { roleRef: { include: { permissions: { include: { permission: true } } } } },
     });
     const permissions = userWithRole?.roleRef?.permissions?.map((rp) => rp.permission.key) ?? [];
-    const userPayload = {
+    const userPayload = mobileUserPayload({
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
       roleId: user.roleId ?? null,
       clientId: user.clientId ?? null,
-      phone: null as string | null,
-    };
+      phone: user.phone ?? null,
+      avatarUrl: user.avatarUrl ?? null,
+    });
     return NextResponse.json({
       access_token: token,
       refresh_token: refreshToken,
@@ -213,6 +243,98 @@ async function handleAuth(
     return NextResponse.json({ message: 'Jika email terdaftar, instruksi reset password akan dikirim.' });
   }
   return NextResponse.json({ error: 'Not found' }, { status: 404 });
+}
+
+// --- Profile: GET me, PATCH name/phone, POST avatar ---
+async function handleProfile(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const auth = await getAuthFromRequest(request, 'mobile');
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (rest[0] === 'avatar' && method === 'POST') {
+    return handleProfileAvatarUpload(request, auth.userId);
+  }
+
+  const user = await prisma.user.findFirst({
+    where: { id: auth.userId, deletedAt: null },
+    select: { id: true, email: true, name: true, role: true, roleId: true, clientId: true, phone: true, avatarUrl: true },
+  });
+  if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+  if (method === 'GET') {
+    return NextResponse.json(mobileUserPayload(user));
+  }
+
+  if (method === 'PATCH') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const data: { name?: string; phone?: string | null } = {};
+      if (body.name !== undefined) data.name = typeof body.name === 'string' ? body.name.trim() || user.name : user.name;
+      if (body.phone !== undefined) data.phone = body.phone === null || body.phone === '' ? null : String(body.phone).trim();
+      const updated = await prisma.user.update({
+        where: { id: auth.userId },
+        data,
+        select: { id: true, email: true, name: true, role: true, roleId: true, clientId: true, phone: true, avatarUrl: true },
+      });
+      return NextResponse.json({ user: mobileUserPayload(updated) });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+
+  return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
+}
+
+async function handleProfileAvatarUpload(request: NextRequest, userId: string): Promise<NextResponse> {
+  try {
+    const formData = await request.formData();
+    const file = formData.get('file');
+    if (!file || !(file instanceof File) || file.size === 0) {
+      return NextResponse.json({ error: 'Pilih file gambar (field: file)' }, { status: 400 });
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      return NextResponse.json(
+        { error: `File melebihi batas ${AVATAR_MAX_BYTES / 1024 / 1024} MB` },
+        { status: 400 }
+      );
+    }
+    const mime = file.type?.toLowerCase() ?? '';
+    if (!AVATAR_ALLOWED_TYPES.includes(mime)) {
+      return NextResponse.json(
+        { error: 'Format tidak diizinkan. Gunakan: JPEG, PNG, WebP, atau GIF' },
+        { status: 400 }
+      );
+    }
+    const ext = mime === 'image/jpeg' ? '.jpg' : mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : '.gif';
+    const safeName = `avatar-${userId}-${Date.now()}${ext}`.replace(/[^a-zA-Z0-9._-]/g, '_');
+    let fileUrl: string;
+    const hasBlobToken = !!process.env.BLOB_READ_WRITE_TOKEN;
+
+    if (hasBlobToken) {
+      const { put } = await import('@vercel/blob');
+      const { url } = await put(`avatars/${safeName}`, file, { access: 'public' });
+      fileUrl = url;
+    } else {
+      const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'avatars');
+      await mkdir(uploadDir, { recursive: true });
+      const filepath = path.join(uploadDir, safeName);
+      await writeFile(filepath, Buffer.from(await file.arrayBuffer()));
+      const origin = new URL(request.url).origin;
+      fileUrl = `${origin}/uploads/avatars/${safeName}`;
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl: fileUrl },
+      select: { id: true, email: true, name: true, role: true, roleId: true, clientId: true, phone: true, avatarUrl: true },
+    });
+    return NextResponse.json({ user: mobileUserPayload(updated) });
+  } catch (e) {
+    console.error('profile avatar upload error', e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Gagal mengunggah foto profil' },
+      { status: 500 }
+    );
+  }
 }
 
 // --- M1: Clients (read-only for mobile) ---
