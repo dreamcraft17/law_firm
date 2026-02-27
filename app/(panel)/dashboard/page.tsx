@@ -27,13 +27,13 @@ type Summary = {
   totalTasks?: number;
 };
 
-const cardMeta: { key: keyof Summary; label: string; sub: string; icon: React.ElementType; accent: 'gold' | 'navy' | 'emerald' }[] = [
-  { key: 'activeCases', label: 'Perkara Aktif', sub: 'Sedang berjalan', icon: Briefcase, accent: 'gold' },
+const cardMeta: { key: keyof Summary; label: string; sub: string; icon: React.ElementType; accent: 'blue' | 'indigo' | 'emerald' }[] = [
+  { key: 'activeCases', label: 'Perkara Aktif', sub: 'Sedang berjalan', icon: Briefcase, accent: 'blue' },
   { key: 'closedCases', label: 'Perkara Ditutup', sub: 'Selesai', icon: CheckCircle, accent: 'emerald' },
-  { key: 'totalCases', label: 'Total Perkara', sub: 'Semua perkara', icon: FileText, accent: 'navy' },
-  { key: 'totalRevenue', label: 'Revenue', sub: 'Total dari invoice', icon: DollarSign, accent: 'gold' },
-  { key: 'totalUsers', label: 'Pengguna', sub: 'User terdaftar', icon: Users, accent: 'navy' },
-  { key: 'totalTasks', label: 'Tugas', sub: 'Total task', icon: ListTodo, accent: 'navy' },
+  { key: 'totalCases', label: 'Total Perkara', sub: 'Semua perkara', icon: FileText, accent: 'indigo' },
+  { key: 'totalRevenue', label: 'Revenue', sub: 'Total dari invoice', icon: DollarSign, accent: 'blue' },
+  { key: 'totalUsers', label: 'Pengguna', sub: 'User terdaftar', icon: Users, accent: 'indigo' },
+  { key: 'totalTasks', label: 'Tugas', sub: 'Total task', icon: ListTodo, accent: 'indigo' },
 ];
 
 const BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -81,15 +81,15 @@ export default function DashboardPage() {
   };
 
   const accentStyles = {
-    gold: 'border-t-gold bg-white',
-    navy: 'border-t-navy bg-white',
+    blue: 'border-t-blue-500 bg-white',
+    indigo: 'border-t-indigo-600 bg-white',
     emerald: 'border-t-emerald-500 bg-white',
   };
 
   const iconStyles = {
-    gold: 'bg-gold/15 text-gold',
-    navy: 'bg-navy/10 text-navy',
-    emerald: 'bg-emerald-500/15 text-emerald-600',
+    blue: 'bg-blue-500/10 text-blue-600',
+    indigo: 'bg-indigo-600/10 text-indigo-600',
+    emerald: 'bg-emerald-500/10 text-emerald-600',
   };
 
   // Data untuk grafik batang: status perkara (dari summary)
@@ -97,7 +97,7 @@ export default function DashboardPage() {
     const active = Number(summary.activeCases ?? 0);
     const closed = Number(summary.closedCases ?? 0);
     return [
-      { name: 'Perkara Aktif', jumlah: active, fill: '#c9a227' },
+      { name: 'Perkara Aktif', jumlah: active, fill: '#3b82f6' },
       { name: 'Perkara Ditutup', jumlah: closed, fill: '#10b981' },
     ].filter((d) => d.jumlah > 0);
   }, [summary.activeCases, summary.closedCases]);
@@ -192,12 +192,12 @@ export default function DashboardPage() {
                   <AreaChart data={trendData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
                     <defs>
                       <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#0c1929" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="#0c1929" stopOpacity={0} />
+                        <stop offset="0%" stopColor="#1e3a8a" stopOpacity={0.3} />
+                        <stop offset="100%" stopColor="#1e3a8a" stopOpacity={0} />
                       </linearGradient>
                       <linearGradient id="colorPerkara" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#c9a227" stopOpacity={0.25} />
-                        <stop offset="100%" stopColor="#c9a227" stopOpacity={0} />
+                        <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.25} />
+                        <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
@@ -213,8 +213,8 @@ export default function DashboardPage() {
                       labelFormatter={(label) => label}
                     />
                     <Legend formatter={(value) => (value === 'revenue' ? 'Revenue' : 'Perkara')} />
-                    <Area yAxisId="left" type="monotone" dataKey="revenue" name="revenue" stroke="#0c1929" strokeWidth={2} fill="url(#colorRevenue)" />
-                    <Area yAxisId="right" type="monotone" dataKey="perkara" name="perkara" stroke="#c9a227" strokeWidth={2} fill="url(#colorPerkara)" />
+                    <Area yAxisId="left" type="monotone" dataKey="revenue" name="revenue" stroke="#1e3a8a" strokeWidth={2} fill="url(#colorRevenue)" />
+                    <Area yAxisId="right" type="monotone" dataKey="perkara" name="perkara" stroke="#3b82f6" strokeWidth={2} fill="url(#colorPerkara)" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>

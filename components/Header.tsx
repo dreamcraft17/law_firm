@@ -19,8 +19,9 @@ export default function Header(props: { title: string }) {
   }, []);
 
   return (
-    <header className="h-14 bg-white flex items-center justify-between gap-4 px-6 shrink-0 border-b border-slate-200/90 shadow-sm">
+    <header className="h-14 bg-white flex items-center justify-between gap-4 px-6 shrink-0 border-b border-slate-200/80 shadow-sm">
       <div className="flex items-center gap-4 min-w-0 flex-1">
+        <div className="w-1 h-5 rounded-full bg-[#3b82f6] shrink-0" />
         <h1 className="text-[15px] font-semibold text-slate-800 tracking-tight shrink-0">{props.title}</h1>
         <GlobalSearch />
       </div>
@@ -28,11 +29,11 @@ export default function Header(props: { title: string }) {
         <button
           type="button"
           onClick={() => setOpen(!open)}
-          className="flex items-center gap-2 pl-2.5 pr-2 py-2 rounded-lg hover:bg-slate-50 text-slate-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+          className="flex items-center gap-2 pl-2.5 pr-2 py-2 rounded-lg hover:bg-slate-50 text-slate-600 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
           aria-expanded={open}
           aria-haspopup="true"
         >
-          <div className="w-8 h-8 rounded-lg bg-[#0c1929] flex items-center justify-center text-[#c9a227] text-xs font-semibold">
+          <div className="w-8 h-8 rounded-lg bg-[#1e3a8a] flex items-center justify-center text-white text-xs font-bold">
             A
           </div>
           <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -42,7 +43,7 @@ export default function Header(props: { title: string }) {
             <button
               type="button"
               onClick={() => { setOpen(false); router.push('/login'); }}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-md mx-1 text-left"
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 rounded-md mx-1 text-left transition-colors"
             >
               <LogOut className="w-4 h-4 text-slate-500 shrink-0" />
               Keluar

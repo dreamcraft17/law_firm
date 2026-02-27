@@ -3,9 +3,9 @@
 @tailwind utilities;
 
 :root {
-  --navy: #0c1929;
-  --gold: #c9a227;
-  --surface: #f8fafc;
+  --corporate: #1e3a8a;
+  --accent: #3b82f6;
+  --surface: #f0f4f8;
 }
 
 body {
@@ -19,9 +19,9 @@ body {
   background: transparent;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  background: rgba(30, 58, 95, 0.5);
+  background: rgba(59, 130, 246, 0.3);
   border-radius: 9999px;
 }
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background: #2a4a6e;
+  background: rgba(59, 130, 246, 0.5);
 }

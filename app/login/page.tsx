@@ -45,32 +45,43 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex">
       {/* Left: Branding */}
-      <div className="hidden lg:flex lg:w-[48%] bg-[#0a1628] flex-col justify-between relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0c1929] via-[#0a1628] to-[#071018] opacity-100" />
-        <div className="absolute top-0 right-0 w-[400px] h-[400px] rounded-full bg-[#c9a227]/8 blur-3xl -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 w-80 h-80 rounded-full bg-[#1e3a5f]/20 blur-3xl translate-y-1/2 -translate-x-1/2" />
+      <div className="hidden lg:flex lg:w-[48%] bg-[#1e3a8a] flex-col justify-between relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-[#1e3a8a] via-[#1d4ed8] to-[#172e70] opacity-100" />
+        {/* Decorative circles */}
+        <div className="absolute top-0 right-0 w-[500px] h-[500px] rounded-full bg-[#3b82f6]/15 blur-3xl -translate-y-1/3 translate-x-1/3" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 rounded-full bg-[#172e70]/60 blur-3xl translate-y-1/2 -translate-x-1/4" />
+        <div className="absolute top-1/2 left-1/2 w-96 h-96 rounded-full bg-[#60a5fa]/8 blur-3xl -translate-x-1/2 -translate-y-1/2" />
+
         <div className="relative z-10 p-12">
+          {/* Logo */}
           <div className="flex items-center gap-4">
-            <div className="relative">
-              <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden backdrop-blur-sm">
-                <Image
-                  src="/logoapplagio.png"
-                  alt="LEGALTECH"
-                  width={48}
-                  height={48}
-                  className="object-contain"
-                  priority
-                />
-              </div>
+            <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center overflow-hidden backdrop-blur-sm">
+              <Image
+                src="/logoapplagio.png"
+                alt="LEGALTECH"
+                width={44}
+                height={44}
+                className="object-contain"
+                priority
+              />
             </div>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight">LEGALTECH</h1>
-              <p className="text-slate-400 text-sm font-medium">Firma Hukum & Konsultan</p>
+              <p className="text-blue-200 text-sm font-medium">Firma Hukum & Konsultan</p>
             </div>
           </div>
+
+          {/* Tagline */}
           <div className="mt-16">
-            <h2 className="text-2xl font-semibold text-white tracking-tight">Admin Panel</h2>
-            <p className="mt-3 text-slate-400 text-[15px] leading-relaxed max-w-sm">
+            <div className="inline-flex items-center gap-2 bg-white/10 border border-white/15 rounded-full px-4 py-1.5 mb-6">
+              <span className="w-2 h-2 rounded-full bg-blue-300 animate-pulse" />
+              <span className="text-blue-200 text-xs font-medium tracking-wide">Sistem Manajemen Terpadu</span>
+            </div>
+            <h2 className="text-3xl font-bold text-white tracking-tight leading-snug">
+              Admin Panel<br />
+              <span className="text-blue-200">Profesional</span>
+            </h2>
+            <p className="mt-4 text-blue-100/80 text-[15px] leading-relaxed max-w-sm">
               Kelola perkara, billing, dan laporan dalam satu dashboard terpadu.
             </p>
             <ul className="mt-8 space-y-4">
@@ -79,9 +90,9 @@ export default function LoginPage() {
                 { icon: BarChart3, text: 'Reporting & analytics real-time' },
                 { icon: FileCheck, text: 'Manajemen dokumen terpusat' },
               ].map(({ icon: Icon, text }) => (
-                <li key={text} className="flex items-center gap-3 text-slate-300 text-sm">
-                  <span className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
-                    <Icon className="w-4 h-4 text-[#c9a227]" strokeWidth={2} />
+                <li key={text} className="flex items-center gap-3 text-blue-100 text-sm">
+                  <span className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center shrink-0">
+                    <Icon className="w-4 h-4 text-blue-300" strokeWidth={2} />
                   </span>
                   {text}
                 </li>
@@ -89,18 +100,23 @@ export default function LoginPage() {
             </ul>
           </div>
         </div>
+
         <div className="relative z-10 px-12 pb-10">
-          <p className="text-slate-500 text-sm">© LEGALTECH — Panel operasional</p>
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-white/10" />
+            <p className="text-blue-300/70 text-sm">© LEGALTECH — Panel operasional</p>
+            <div className="h-px flex-1 bg-white/10" />
+          </div>
         </div>
       </div>
 
       {/* Right: Form */}
-      <div className="flex-1 flex items-center justify-center p-6 sm:p-8 bg-slate-50/80">
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-8 bg-slate-50">
         <div className="w-full max-w-[420px]">
           {/* Mobile logo */}
           <div className="lg:hidden flex justify-center mb-8">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center">
+              <div className="w-12 h-12 rounded-xl bg-[#1e3a8a] flex items-center justify-center overflow-hidden shadow-md">
                 <Image
                   src="/logoapplagio.png"
                   alt="LEGALTECH"
@@ -117,9 +133,14 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xl shadow-slate-200/50 p-8 sm:p-10">
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xl shadow-slate-200/60 p-8 sm:p-10">
             <div className="mb-8">
-              <h2 className="text-xl font-semibold text-slate-800 tracking-tight">Masuk ke Admin</h2>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-lg bg-[#1e3a8a] flex items-center justify-center">
+                  <Shield className="w-4 h-4 text-white" strokeWidth={2} />
+                </div>
+              </div>
+              <h2 className="text-xl font-bold text-slate-800 tracking-tight">Masuk ke Admin</h2>
               <p className="text-slate-500 text-sm mt-1">Gunakan akun Anda untuk mengakses dashboard</p>
             </div>
 
@@ -128,19 +149,20 @@ export default function LoginPage() {
                 {error}
               </div>
             )}
+
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-2">
                   Email
                 </label>
                 <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400 pointer-events-none" />
                   <input
                     id="email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl pl-11 pr-4 py-3 text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-[#0c1929]/10 focus:border-[#0c1929] transition-all text-sm bg-slate-50/50 hover:bg-white"
+                    className="w-full border border-slate-200 rounded-xl pl-11 pr-4 py-3 text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm bg-slate-50/50 hover:bg-white"
                     placeholder="nama@firma.com"
                     required
                   />
@@ -151,13 +173,13 @@ export default function LoginPage() {
                   Password
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400 pointer-events-none" />
                   <input
                     id="password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl pl-11 pr-4 py-3 text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-[#0c1929]/10 focus:border-[#0c1929] transition-all text-sm bg-slate-50/50 hover:bg-white"
+                    className="w-full border border-slate-200 rounded-xl pl-11 pr-4 py-3 text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm bg-slate-50/50 hover:bg-white"
                     placeholder="••••••••"
                     required
                   />
@@ -166,7 +188,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 bg-[#0c1929] text-white font-semibold rounded-xl hover:bg-[#132337] active:scale-[0.99] transition-all disabled:opacity-60 disabled:cursor-not-allowed text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#0c1929]/20"
+                className="w-full py-3.5 bg-[#1e3a8a] text-white font-semibold rounded-xl hover:bg-[#1d4ed8] active:scale-[0.99] transition-all disabled:opacity-60 disabled:cursor-not-allowed text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-900/25"
               >
                 {loading ? (
                   <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
