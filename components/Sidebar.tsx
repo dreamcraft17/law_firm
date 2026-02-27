@@ -15,16 +15,20 @@ import {
   FileCheck,
   BookOpen,
   Settings,
+  UserPlus,
+  Calendar,
 } from 'lucide-react';
 
 const nav = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/users', label: 'User & Role', icon: Users },
   { href: '/roles', label: 'Roles & Permissions', icon: Shield },
+  { href: '/leads', label: 'Intake & Lead', icon: UserPlus },
   { href: '/cases', label: 'Case Management', icon: Briefcase },
   { href: '/tasks', label: 'Task Workflow', icon: ListTodo },
   { href: '/documents', label: 'Dokumen', icon: FolderOpen },
   { href: '/billing', label: 'Billing', icon: DollarSign },
+  { href: '/events', label: 'Kalender & Event', icon: Calendar },
   { href: '/reports', label: 'Reporting', icon: BarChart3 },
   { href: '/audit', label: 'Audit', icon: FileCheck },
   { href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },

@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { LogOut, ChevronDown } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+import GlobalSearch from '@/components/GlobalSearch';
 
 export default function Header(props: { title: string }) {
   const router = useRouter();
@@ -18,9 +19,12 @@ export default function Header(props: { title: string }) {
   }, []);
 
   return (
-    <header className="h-14 bg-white flex items-center justify-between px-6 shrink-0 border-b border-slate-200/90 shadow-sm">
-      <h1 className="text-[15px] font-semibold text-slate-800 tracking-tight">{props.title}</h1>
-      <div className="flex items-center gap-2" ref={ref}>
+    <header className="h-14 bg-white flex items-center justify-between gap-4 px-6 shrink-0 border-b border-slate-200/90 shadow-sm">
+      <div className="flex items-center gap-4 min-w-0 flex-1">
+        <h1 className="text-[15px] font-semibold text-slate-800 tracking-tight shrink-0">{props.title}</h1>
+        <GlobalSearch />
+      </div>
+      <div className="flex items-center gap-2 shrink-0" ref={ref}>
         <button
           type="button"
           onClick={() => setOpen(!open)}

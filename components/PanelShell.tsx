@@ -8,6 +8,7 @@ const titles: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/users': 'User & Role Management',
   '/roles': 'Roles & Permissions',
+  '/leads': 'Intake & Lead',
   '/cases': 'Case Management',
   '/tasks': 'Task Workflow',
   '/documents': 'Document Management',
@@ -16,6 +17,7 @@ const titles: Record<string, string> = {
   '/audit': 'Audit & Compliance',
   '/knowledge-base': 'Knowledge Base',
   '/settings': 'System Configuration',
+  '/events': 'Kalender & Event',
 };
 
 export default function PanelShell(props: { children: React.ReactNode }) {

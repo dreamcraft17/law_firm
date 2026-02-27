@@ -9,6 +9,7 @@ const SESSION_EXPIRY_DAYS = 30;
 
 export type AuthUser = {
   userId: string;
+  firmId: string | null;
   roleId: string | null;
   roleName: string;
   permissions: string[];
@@ -36,6 +37,7 @@ export async function getAuthFromRequest(request: NextRequest, source: 'admin' |
 
   return {
     userId: user.id,
+    firmId: user.firmId ?? null,
     roleId: user.roleId,
     roleName: user.role,
     permissions,
@@ -63,13 +65,29 @@ export function requirePermission(auth: AuthUser | null, permission: string): Au
   return a;
 }
 
-export async function createSession(userId: string, source: 'admin' | 'mobile', refreshToken?: string): Promise<string> {
+export async function createSession(
+  userId: string,
+  source: 'admin' | 'mobile',
+  refreshToken?: string,
+  device?: { userAgent?: string; deviceId?: string; deviceLabel?: string; ipAddress?: string }
+): Promise<string> {
   const crypto = await import('crypto');
   const token = source === 'admin' ? `admin_${crypto.randomBytes(24).toString('hex')}` : `mobile_${crypto.randomBytes(24).toString('hex')}`;
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + SESSION_EXPIRY_DAYS);
   await prisma.session.create({
-    data: { userId, token, source, expiresAt, refreshToken: refreshToken ?? null },
+    data: {
+      userId,
+      token,
+      source,
+      expiresAt,
+      refreshToken: refreshToken ?? null,
+      userAgent: device?.userAgent?.slice(0, 500) ?? null,
+      deviceId: device?.deviceId ?? null,
+      deviceLabel: device?.deviceLabel ?? null,
+      ipAddress: device?.ipAddress ?? null,
+      lastActiveAt: new Date(),
+    },
   });
   return token;
 }
