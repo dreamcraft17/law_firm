@@ -56,9 +56,16 @@ async function main() {
   const allPerms = await prisma.permission.findMany({ select: { id: true, key: true } });
   const allKeys = allPerms.map((x) => x.key);
 
+  const defaultFirm = await prisma.firm.upsert({
+    where: { slug: 'default' },
+    create: { name: 'Default Firm', slug: 'default' },
+    update: {},
+  });
+  const firmId = defaultFirm.id;
+
   const adminRole = await prisma.role.upsert({
-    where: { name: 'admin' },
-    create: { name: 'admin' },
+    where: { firmId_name: { firmId, name: 'admin' } },
+    create: { firmId, name: 'admin' },
     update: {},
   });
   await prisma.rolePermission.deleteMany({ where: { roleId: adminRole.id } });
@@ -75,8 +82,8 @@ async function main() {
       (k.startsWith('cases.') || k.startsWith('tasks.') || k.startsWith('documents.') || k.startsWith('billing.') || k.startsWith('reports.view') || k.startsWith('audit.view'))
   );
   const lawyerRole = await prisma.role.upsert({
-    where: { name: 'lawyer' },
-    create: { name: 'lawyer' },
+    where: { firmId_name: { firmId, name: 'lawyer' } },
+    create: { firmId, name: 'lawyer' },
     update: {},
   });
   await prisma.rolePermission.deleteMany({ where: { roleId: lawyerRole.id } });
@@ -97,8 +104,8 @@ async function main() {
       k === 'reports.view'
   );
   const staffRole = await prisma.role.upsert({
-    where: { name: 'staff' },
-    create: { name: 'staff' },
+    where: { firmId_name: { firmId, name: 'staff' } },
+    create: { firmId, name: 'staff' },
     update: {},
   });
   await prisma.rolePermission.deleteMany({ where: { roleId: staffRole.id } });
@@ -112,8 +119,8 @@ async function main() {
 
   const clientPermKeys = ['cases.view', 'documents.view', 'billing.view'].filter((k) => allKeys.includes(k));
   const clientRole = await prisma.role.upsert({
-    where: { name: 'client' },
-    create: { name: 'client' },
+    where: { firmId_name: { firmId, name: 'client' } },
+    create: { firmId, name: 'client' },
     update: {},
   });
   await prisma.rolePermission.deleteMany({ where: { roleId: clientRole.id } });

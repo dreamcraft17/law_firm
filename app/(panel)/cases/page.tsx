@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { Suspense, useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/api-client';
 import { adminEndpoints } from '@/lib/api-paths';
@@ -22,7 +22,7 @@ type SavedViewItem = { id: string; name: string; entityType: string; filters: Re
 
 const STAGES = ['intake', 'active', 'on_hold', 'closed'] as const;
 
-export default function CasesPage() {
+function CasesPageContent() {
   const searchParams = useSearchParams();
   const [list, setList] = useState<CaseItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -607,5 +607,13 @@ export default function CasesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CasesPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-gray-500">Memuat...</div>}>
+      <CasesPageContent />
+    </Suspense>
   );
 }
