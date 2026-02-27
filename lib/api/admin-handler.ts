@@ -1677,7 +1677,7 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
     }
     if (method === 'PUT' || method === 'PATCH') {
       const body = await request.json().catch(() => ({}));
-      const data: { name?: string; folder?: string | null; clientVisible?: boolean; version?: number; permissionPolicy?: unknown } = {};
+      const data: Prisma.DocumentUpdateInput = {};
       if (body.name !== undefined) data.name = body.name;
       if (body.folder !== undefined) data.folder = body.folder ?? null;
       if (body.clientVisible !== undefined) data.clientVisible = !!body.clientVisible;
