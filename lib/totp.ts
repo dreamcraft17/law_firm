@@ -30,7 +30,8 @@ export function generateTotpSecret(): string {
   let result = '';
   let buffer = 0;
   let bits = 0;
-  for (const b of bytes) {
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i]!;
     buffer = (buffer << 8) | b;
     bits += 8;
     while (bits >= 5) {
