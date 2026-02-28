@@ -1253,6 +1253,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       status?: string;
       stage?: string;
       caseType?: string | null;
+      case_type?: string;
       clientId?: string | null;
       client_name?: string;
       caseNumber?: string;
