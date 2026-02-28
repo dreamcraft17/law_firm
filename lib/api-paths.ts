@@ -177,7 +177,6 @@ export const adminEndpoints = {
   caseUpdate: (id: string) => `${ApiPaths.cases}/${id}`,
   caseDelete: (id: string) => `${ApiPaths.cases}/${id}`,
   caseAssignTeam: (id: string) => `${ApiPaths.cases}/${id}/team`,
-  caseConflictCheck: () => `${ApiPaths.cases}/conflict-check`,
   caseExportSummary: (id: string) => `${ApiPaths.cases}/${id}/export`,
   caseAccess: (caseId: string) => `${ApiPaths.cases}/${caseId}/access`,
   caseAccessUser: (caseId: string, userId: string) => `${ApiPaths.cases}/${caseId}/access/${userId}`,
