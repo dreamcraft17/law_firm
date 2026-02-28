@@ -2181,7 +2181,12 @@ async function handleEventsAdmin(rest: string[], method: string, request: NextRe
           },
         },
         task: { select: { id: true, title: true } },
-        lead: { include: { client: { select: { id: true, name: true } } } },
+        lead: {
+          include: {
+            client: { select: { id: true, name: true } },
+            case: { include: { teamMembers: { include: { user: { select: { id: true, name: true } } } } } },
+          },
+        },
       },
     });
     return NextResponse.json({ data: list });

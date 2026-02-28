@@ -28,6 +28,10 @@ type EventItem = {
     name: string;
     email?: string | null;
     client?: { id: string; name: string } | null;
+    case?: {
+      id: string;
+      teamMembers?: Array<{ user: { id: string; name: string | null } }>;
+    } | null;
   } | null;
 };
 
@@ -171,10 +175,14 @@ export default function EventsPage() {
                   const pengaju = ev.lead
                     ? ev.lead.client?.name ?? ev.lead.name
                     : ev.case_?.client?.name ?? null;
+                  const teamFromCase = ev.case_?.teamMembers;
+                  const teamFromLeadCase = ev.lead?.case?.teamMembers;
                   const pengacara =
-                    ev.case_?.teamMembers?.length && ev.case_.teamMembers[0]?.user?.name
-                      ? ev.case_.teamMembers.map((m) => m.user.name).filter(Boolean).join(', ')
-                      : null;
+                    teamFromCase?.length && teamFromCase[0]?.user?.name
+                      ? teamFromCase.map((m) => m.user.name).filter(Boolean).join(', ')
+                      : teamFromLeadCase?.length && teamFromLeadCase[0]?.user?.name
+                        ? teamFromLeadCase.map((m) => m.user.name).filter(Boolean).join(', ')
+                        : null;
                   return (
                     <tr key={ev.id} className="border-t border-gray-100">
                       <td className="p-3 font-medium">{ev.title}</td>
