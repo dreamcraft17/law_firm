@@ -1013,6 +1013,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         where: { id },
         include: { client: true, conflictOverride: { include: { approvedBy: { select: { id: true, name: true } } } } },
       });
+      if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       return NextResponse.json(normalizeCaseForResponse(c));
     }
     if (method === 'GET') {
