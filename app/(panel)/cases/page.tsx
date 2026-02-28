@@ -65,6 +65,7 @@ function CasesPageContent() {
   const [teamSaving, setTeamSaving] = useState(false);
   const [usersForTeam, setUsersForTeam] = useState<UserItem[]>([]);
   const [addTeamUserId, setAddTeamUserId] = useState('');
+  const [teamSuccessMessage, setTeamSuccessMessage] = useState<string | null>(null);
 
   const buildParams = useCallback(() => {
     const p: { stage?: string; clientId?: string; from?: string; to?: string } = {};
@@ -278,6 +279,7 @@ function CasesPageContent() {
     setTeamCase(c);
     setTeamMembers([]);
     setAddTeamUserId('');
+    setTeamSuccessMessage(null);
     setTeamLoading(true);
     try {
       const [teamRes, usersRes] = await Promise.all([
@@ -301,6 +303,7 @@ function CasesPageContent() {
     e.preventDefault();
     if (!teamCase || !addTeamUserId) return;
     setTeamSaving(true);
+    setTeamSuccessMessage(null);
     try {
       const res = await adminFetch(adminEndpoints.caseAssignTeam(teamCase.id), {
         method: 'POST',
@@ -308,8 +311,11 @@ function CasesPageContent() {
       });
       if (!res.ok) throw new Error(res.statusText);
       const added = await res.json();
+      const name = added.user?.name || added.user?.email || 'Pengacara/staff';
       setTeamMembers((prev) => [...prev, { ...added, user: added.user ?? { id: added.userId, name: null, email: '', role: '' } }]);
       setAddTeamUserId('');
+      setTeamSuccessMessage(`${name} berhasil ditambahkan ke tim.`);
+      setTimeout(() => setTeamSuccessMessage(null), 4000);
     } catch {
       // ignore
     } finally {
@@ -319,7 +325,9 @@ function CasesPageContent() {
 
   const handleRemoveTeamMember = async (userId: string) => {
     if (!teamCase) return;
+    const member = teamMembers.find((m) => m.userId === userId);
     setTeamSaving(true);
+    setTeamSuccessMessage(null);
     try {
       const res = await adminFetch(adminEndpoints.caseAssignTeam(teamCase.id), {
         method: 'DELETE',
@@ -327,6 +335,9 @@ function CasesPageContent() {
       });
       if (!res.ok) throw new Error(res.statusText);
       setTeamMembers((prev) => prev.filter((m) => m.userId !== userId));
+      const name = member?.user?.name || member?.user?.email || 'Anggota';
+      setTeamSuccessMessage(`${name} dihapus dari tim.`);
+      setTimeout(() => setTeamSuccessMessage(null), 4000);
     } catch {
       // ignore
     } finally {
@@ -665,6 +676,11 @@ function CasesPageContent() {
               <button type="button" onClick={() => setTeamCase(null)} className="text-gray-500 hover:text-gray-700">×</button>
             </div>
             <div className="p-4">
+              {teamSuccessMessage && (
+                <div className="mb-3 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                  {teamSuccessMessage}
+                </div>
+              )}
               {teamLoading ? (
                 <p className="text-sm text-gray-500">Memuat...</p>
               ) : (
