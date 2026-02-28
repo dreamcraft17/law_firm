@@ -11,7 +11,6 @@ const titles: Record<string, string> = {
   '/leads': 'Intake & Lead',
   '/cases': 'Case Management',
   '/sla-rules': 'SLA & Deadline',
-  '/sla-rules': 'SLA & Deadline',
   '/tasks': 'Task Workflow',
   '/documents': 'Document Management',
   '/billing': 'Billing & Finance',
