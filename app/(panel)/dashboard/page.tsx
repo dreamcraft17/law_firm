@@ -15,6 +15,8 @@ import {
   AreaChart,
   Area,
   Legend,
+  LineChart,
+  Line,
 } from 'recharts';
 
 type Summary = {
@@ -101,6 +103,19 @@ export default function DashboardPage() {
       { name: 'Perkara Ditutup', jumlah: closed, fill: '#10b981' },
     ].filter((d) => d.jumlah > 0);
   }, [summary.activeCases, summary.closedCases]);
+
+  // Data grafik detak jantung (EKG-style): pola naik-turun seperti aktivitas
+  const heartbeatData = useMemo(() => {
+    const oneBeat = [0, 0, 0.12, 0.35, 0.18, 0, 0.55, 1, 0.3, 0.08, 0.22, 0.32, 0.12, 0, 0, 0, 0];
+    const points: { i: number; value: number }[] = [];
+    const cycles = 6;
+    for (let c = 0; c < cycles; c++) {
+      oneBeat.forEach((v, i) => {
+        points.push({ i: c * oneBeat.length + i, value: v });
+      });
+    }
+    return points;
+  }, []);
 
   // Data untuk grafik area: trend 6 bulan (mock dari total revenue/cases)
   const trendData = useMemo(() => {
@@ -219,6 +234,37 @@ export default function DashboardPage() {
                 </ResponsiveContainer>
               </div>
               <p className="text-xs text-slate-500 mt-2">Estimasi distribusi berdasarkan total data. Data aktual per bulan dapat ditambah dari backend.</p>
+            </div>
+
+            {/* Grafik detak jantung (aktivitas) */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-card p-6 xl:col-span-2">
+              <h3 className="text-sm font-semibold text-slate-800 mb-1">Detak Aktivitas</h3>
+              <p className="text-xs text-slate-500 mb-4">Pola aktivitas (simulasi EKG)</p>
+              <div className="h-[200px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={heartbeatData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                    <XAxis dataKey="i" hide />
+                    <YAxis domain={[0, 1.1]} tick={{ fontSize: 10, fill: '#64748b' }} width={24} tickFormatter={() => ''} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+                      formatter={(value: number) => [(Number(value) * 100).toFixed(0) + '%', 'Aktivitas']}
+                      labelFormatter={() => ''}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      stroke="#dc2626"
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive={true}
+                      animationDuration={1500}
+                      animationEasing="ease-out"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-xs text-slate-500 mt-2">Visualisasi pola aktivitas. Dapat dihubungkan ke data real-time (login, event, task) dari backend.</p>
             </div>
           </div>
         </>
