@@ -48,7 +48,6 @@ async function runSlaCron(): Promise<NextResponse> {
       where: { deletedAt: null, slaDueDate: { not: null } },
       include: {
         teamMembers: { select: { userId: true } },
-        firmId: true,
       },
     });
 
