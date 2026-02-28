@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/api-client';
 import { adminEndpoints } from '@/lib/api-paths';
-import { Pencil, Trash2, FolderPlus, Filter, Save, Flag } from 'lucide-react';
+import { Pencil, Trash2, FolderPlus, Filter, Save, Flag, UserPlus } from 'lucide-react';
 
 type CaseItem = {
   id: string;
@@ -19,6 +19,15 @@ type CaseItem = {
 };
 
 type SavedViewItem = { id: string; name: string; entityType: string; filters: Record<string, string> };
+
+type TeamMemberItem = {
+  id: string;
+  userId: string;
+  role?: string | null;
+  user: { id: string; name: string | null; email: string; role: string };
+};
+
+type UserItem = { id: string; name: string | null; email: string; role: string };
 
 const STAGES = ['intake', 'active', 'on_hold', 'closed'] as const;
 
@@ -50,6 +59,12 @@ function CasesPageContent() {
   const [milestoneForm, setMilestoneForm] = useState({ name: '', dueDate: '', sortOrder: '0' });
   const [milestonesLoading, setMilestonesLoading] = useState(false);
   const [milestoneSaving, setMilestoneSaving] = useState(false);
+  const [teamCase, setTeamCase] = useState<CaseItem | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMemberItem[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamSaving, setTeamSaving] = useState(false);
+  const [usersForTeam, setUsersForTeam] = useState<UserItem[]>([]);
+  const [addTeamUserId, setAddTeamUserId] = useState('');
 
   const buildParams = useCallback(() => {
     const p: { stage?: string; clientId?: string; from?: string; to?: string } = {};
@@ -259,6 +274,66 @@ function CasesPageContent() {
     }
   };
 
+  const openTeam = async (c: CaseItem) => {
+    setTeamCase(c);
+    setTeamMembers([]);
+    setAddTeamUserId('');
+    setTeamLoading(true);
+    try {
+      const [teamRes, usersRes] = await Promise.all([
+        adminFetch(adminEndpoints.caseAssignTeam(c.id)),
+        adminFetch(adminEndpoints.usersList()),
+      ]);
+      const teamJson = teamRes.ok ? await teamRes.json() : { data: [] };
+      const usersJson = usersRes.ok ? await usersRes.json() : { data: [] };
+      setTeamMembers(Array.isArray(teamJson.data) ? teamJson.data : []);
+      const allUsers: UserItem[] = Array.isArray(usersJson.data) ? usersJson.data : [];
+      setUsersForTeam(allUsers.filter((u: UserItem) => u.role === 'lawyer' || u.role === 'staff' || u.role === 'admin'));
+    } catch {
+      setTeamMembers([]);
+      setUsersForTeam([]);
+    } finally {
+      setTeamLoading(false);
+    }
+  };
+
+  const handleAddTeamMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!teamCase || !addTeamUserId) return;
+    setTeamSaving(true);
+    try {
+      const res = await adminFetch(adminEndpoints.caseAssignTeam(teamCase.id), {
+        method: 'POST',
+        body: JSON.stringify({ userId: addTeamUserId, role: 'member' }),
+      });
+      if (!res.ok) throw new Error(res.statusText);
+      const added = await res.json();
+      setTeamMembers((prev) => [...prev, { ...added, user: added.user ?? { id: added.userId, name: null, email: '', role: '' } }]);
+      setAddTeamUserId('');
+    } catch {
+      // ignore
+    } finally {
+      setTeamSaving(false);
+    }
+  };
+
+  const handleRemoveTeamMember = async (userId: string) => {
+    if (!teamCase) return;
+    setTeamSaving(true);
+    try {
+      const res = await adminFetch(adminEndpoints.caseAssignTeam(teamCase.id), {
+        method: 'DELETE',
+        body: JSON.stringify({ userId }),
+      });
+      if (!res.ok) throw new Error(res.statusText);
+      setTeamMembers((prev) => prev.filter((m) => m.userId !== userId));
+    } catch {
+      // ignore
+    } finally {
+      setTeamSaving(false);
+    }
+  };
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
@@ -378,6 +453,14 @@ function CasesPageContent() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openTeam(c)}
+                          className="p-1.5 text-[#1B4965] hover:bg-blue-50 rounded"
+                          title="Assign pengacara / tim"
+                        >
+                          <UserPlus size={16} />
+                        </button>
                         <button
                           type="button"
                           onClick={() => openMilestones(c)}
@@ -567,6 +650,66 @@ function CasesPageContent() {
                     <input type="number" value={milestoneForm.sortOrder} onChange={(e) => setMilestoneForm((f) => ({ ...f, sortOrder: e.target.value }))} placeholder="Urutan" className="border border-gray-300 rounded-lg px-3 py-2 w-16" min={0} />
                     <button type="submit" disabled={milestoneSaving} className="px-3 py-2 bg-[#1B4965] text-white rounded-lg text-sm disabled:opacity-50">Tambah</button>
                   </form>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {teamCase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div className="p-4 border-b flex justify-between items-center">
+              <h3 className="font-semibold text-gray-900">Assign pengacara / tim — {teamCase.title}</h3>
+              <button type="button" onClick={() => setTeamCase(null)} className="text-gray-500 hover:text-gray-700">×</button>
+            </div>
+            <div className="p-4">
+              {teamLoading ? (
+                <p className="text-sm text-gray-500">Memuat...</p>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-600 mb-3">Pengacara atau staff yang di-assign ke perkara ini akan memiliki akses ke perkara di app mobile.</p>
+                  <ul className="mb-4 space-y-2 text-sm">
+                    {teamMembers.map((m) => (
+                      <li key={m.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg border border-gray-100">
+                        <span>
+                          <span className="font-medium text-gray-900">{m.user?.name || m.user?.email || '—'}</span>
+                          {m.user?.email && <span className="text-gray-500 ml-1">({m.user.email})</span>}
+                          {m.user?.role && <span className="ml-1 text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{m.user.role}</span>}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTeamMember(m.userId)}
+                          disabled={teamSaving}
+                          className="text-red-600 hover:underline text-xs disabled:opacity-50"
+                        >
+                          Hapus
+                        </button>
+                      </li>
+                    ))}
+                    {teamMembers.length === 0 && <li className="text-gray-500 py-2">Belum ada pengacara/staff di-assign. Tambah di bawah.</li>}
+                  </ul>
+                  <form onSubmit={handleAddTeamMember} className="flex flex-wrap gap-2 items-end">
+                    <select
+                      value={addTeamUserId}
+                      onChange={(e) => setAddTeamUserId(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 flex-1 min-w-[200px]"
+                    >
+                      <option value="">— Pilih lawyer/staff —</option>
+                      {usersForTeam
+                        .filter((u) => !teamMembers.some((m) => m.userId === u.id))
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>{u.name || u.email} ({u.role})</option>
+                        ))}
+                    </select>
+                    <button type="submit" disabled={teamSaving || !addTeamUserId} className="px-3 py-2 bg-[#1B4965] text-white rounded-lg text-sm hover:opacity-90 disabled:opacity-50">
+                      {teamSaving ? 'Menambah...' : 'Tambah'}
+                    </button>
+                  </form>
+                  {usersForTeam.filter((u) => !teamMembers.some((m) => m.userId === u.id)).length === 0 && usersForTeam.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-2">Semua lawyer/staff sudah di-assign ke perkara ini.</p>
+                  )}
                 </>
               )}
             </div>
