@@ -1063,9 +1063,8 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
             for (const e of existing) {
               const eNorm = normalizeForConflict(e);
               if (!eNorm) continue;
-              const sim = diceSimilarity(eNorm, nNorm);
               if (namesConflict(eNorm, nNorm)) {
-                conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap', matchedName: e, similarity: Math.round(sim * 100) });
+                conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap', matchedName: e });
                 break;
               }
             }
