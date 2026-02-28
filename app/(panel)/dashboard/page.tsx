@@ -252,10 +252,7 @@ export default function DashboardPage() {
                       <YAxis tick={{ fontSize: 10, fill: '#64748b' }} width={28} allowDecimals={false} />
                       <Tooltip
                         contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
-                        formatter={(value: number | undefined, _name: string, props: { payload?: { count: number } }) => [
-                          props?.payload?.count ?? value ?? 0,
-                          'Event',
-                        ]}
+                        formatter={(value: number | undefined) => [value ?? 0, 'Event']}
                         labelFormatter={(label) => label}
                       />
                       <Line
