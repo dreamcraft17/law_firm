@@ -37,7 +37,7 @@ function diceSimilarity(a: string, b: string): number {
   const aMap = bigrams(a);
   const bMap = bigrams(b);
   let intersection = 0;
-  for (const [bg, count] of aMap) intersection += Math.min(count, bMap.get(bg) ?? 0);
+  aMap.forEach((count, bg) => { intersection += Math.min(count, bMap.get(bg) ?? 0); });
   return (2 * intersection) / (a.length - 1 + (b.length - 1));
 }
 
