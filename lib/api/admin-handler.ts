@@ -2401,7 +2401,7 @@ async function handleReports(rest: string[], method: string, _request: NextReque
 
   // --- Finance: Revenue per case ---
   const revenueByCase: Record<string, number> = {};
-  const caseIds = [...new Set(timeEntriesAll.map((e) => e.caseId))];
+  const caseIds = Array.from(new Set(timeEntriesAll.map((e) => e.caseId)));
   const casesForTitles = caseIds.length > 0
     ? await prisma.case.findMany({ where: { id: { in: caseIds } }, select: { id: true, title: true } })
     : [];
