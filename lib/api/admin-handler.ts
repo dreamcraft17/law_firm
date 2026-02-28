@@ -53,6 +53,7 @@ function getRequiredPermission(group: string, method: string, rest: string[]): s
     'firm-configs': 'settings.view',
     sessions: 'users.view',
     export: 'audit.view',
+    'sla-rules': method === 'GET' ? 'cases.view' : 'settings.update',
   };
   return map[group] ?? null;
 }
@@ -147,6 +148,8 @@ export async function handleAdmin(
         return handleSessions(rest, method, request, auth);
       case 'export':
         return handleExport(rest, method, request, auth);
+      case 'sla-rules':
+        return handleSlaRules(rest, method, request);
       default:
         return NextResponse.json(
           { error: 'Not found', path: pathSegments.join('/') },
@@ -1027,7 +1030,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       return NextResponse.json(out);
     }
     if (method === 'PUT' || method === 'PATCH') {
-      let body: { title?: string; status?: string; stage?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown } = {};
+      let body: { title?: string; status?: string; stage?: string; caseType?: string | null; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown } = {};
       try {
         body = await request.json();
       } catch {
@@ -1035,24 +1038,30 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       }
       const existing = await prisma.case.findFirst({ where: { id, deletedAt: null } });
       if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      const data: { title?: string; status?: string; stage?: string; clientId?: string | null; caseNumber?: string | null; description?: string | null; parties?: unknown } = {};
+      const data: { title?: string; status?: string; stage?: string; caseType?: string | null; clientId?: string | null; caseNumber?: string | null; description?: string | null; parties?: unknown } = {};
       if (body.title !== undefined) data.title = body.title.trim();
       if (body.status !== undefined) data.status = body.status;
       if (body.stage !== undefined) data.stage = body.stage;
+      if (body.caseType !== undefined) data.caseType = (body.caseType ?? body.case_type)?.trim() || null;
       if (body.clientId !== undefined || body.client_name !== undefined) data.clientId = await resolveClientId(body);
       if (body.caseNumber !== undefined || body.case_number !== undefined) data.caseNumber = (body.caseNumber ?? body.case_number)?.trim() || null;
       if (body.description !== undefined) data.description = body.description?.trim() || null;
       if (body.parties !== undefined) data.parties = body.parties;
-      // Prisma CaseUpdateInput union rejects clientId: null; use relation API to clear client.
       const updateData: Prisma.CaseUpdateInput = {};
       if (data.title !== undefined) updateData.title = data.title;
       if (data.status !== undefined) updateData.status = data.status;
       if (data.stage !== undefined) updateData.stage = data.stage;
+      if (data.caseType !== undefined) updateData.caseType = data.caseType;
       if (data.clientId === null) updateData.client = { disconnect: true };
       else if (data.clientId !== undefined) updateData.client = { connect: { id: data.clientId } };
       if (data.caseNumber !== undefined) updateData.caseNumber = data.caseNumber;
       if (data.description !== undefined) updateData.description = data.description;
       if (data.parties !== undefined) updateData.parties = data.parties as Prisma.InputJsonValue;
+      if (data.caseType !== undefined && data.caseType) {
+        const sla = await getSlaDueFromRule(existing.firmId, data.caseType, existing.createdAt);
+        if (sla) updateData.slaDueDate = sla.slaDueDate;
+        else if (data.caseType === null) updateData.slaDueDate = null;
+      }
       const c = await prisma.case.update({
         where: { id },
         data: updateData,
@@ -1243,6 +1252,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       title: string;
       status?: string;
       stage?: string;
+      caseType?: string | null;
       clientId?: string | null;
       client_name?: string;
       caseNumber?: string;
@@ -1259,6 +1269,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
     const clientId = await resolveClientId(body);
     const auth = await getAuthFromRequest(request, 'admin');
     const firmId = auth?.firmId ?? null;
+    const caseType = (body.caseType ?? body.case_type)?.trim() || null;
     let caseNumber = (body.caseNumber ?? body.case_number)?.trim() || null;
     if (!caseNumber && firmId) {
       try {
@@ -1276,6 +1287,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         title: body.title.trim(),
         status: body.status?.trim() ?? 'open',
         stage: body.stage?.trim() ?? 'intake',
+        caseType,
         clientId,
         caseNumber,
         description: body.description?.trim() || null,
@@ -1283,8 +1295,13 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       },
       include: { client: true },
     });
+    if (caseType) {
+      const sla = await getSlaDueFromRule(firmId, caseType, c.createdAt);
+      if (sla) await prisma.case.update({ where: { id: c.id }, data: { slaDueDate: sla.slaDueDate } });
+    }
     await prisma.auditLog.create({ data: { action: 'create', entity: 'case', entityId: c.id, details: { title: c.title } } }).catch(() => {});
-    return NextResponse.json(normalizeCaseForResponse(c), { status: 201 });
+    const out = await prisma.case.findFirst({ where: { id: c.id }, include: { client: true } });
+    return NextResponse.json(normalizeCaseForResponse(out ?? c), { status: 201 });
   }
   return methodNotAllowed();
 }
@@ -2859,6 +2876,84 @@ async function handleSessions(rest: string[], method: string, request: NextReque
     if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     await prisma.session.delete({ where: { id: sessionId } });
     return NextResponse.json({ message: 'Revoked' });
+  }
+  return methodNotAllowed();
+}
+
+/** Returns SLA due date (createdAt + dueDays) and reminder days from rule, or null. */
+async function getSlaDueFromRule(
+  firmId: string | null,
+  caseType: string | null,
+  createdAt: Date
+): Promise<{ slaDueDate: Date; reminderDaysBefore: number[] } | null> {
+  if (!caseType?.trim()) return null;
+  const rule = await prisma.slaRule.findFirst({
+    where: { isActive: true, caseType: caseType.trim(), OR: [{ firmId: firmId ?? undefined }, { firmId: null }] },
+    orderBy: { firmId: 'desc' },
+  });
+  if (!rule) return null;
+  const d = new Date(createdAt);
+  d.setDate(d.getDate() + rule.dueDays);
+  const arr = rule.reminderDaysBefore as unknown;
+  const reminderDays = Array.isArray(arr) ? arr.filter((x): x is number => typeof x === 'number') : [];
+  return { slaDueDate: d, reminderDaysBefore: reminderDays };
+}
+
+async function handleSlaRules(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const auth = await getAuthFromRequest(request, 'admin');
+  const firmId = auth?.firmId ?? null;
+  if (method === 'GET' && rest.length === 0) {
+    const list = await prisma.slaRule.findMany({
+      where: { OR: [{ firmId: firmId ?? undefined }, { firmId: null }] },
+      orderBy: [{ firmId: 'desc' }, { caseType: 'asc' }],
+    });
+    return NextResponse.json({ data: list });
+  }
+  const id = rest[0];
+  if (id && rest.length === 1) {
+    if (method === 'GET') {
+      const r = await prisma.slaRule.findFirst({ where: { id } });
+      if (!r) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      return NextResponse.json(r);
+    }
+    if (method === 'PUT' || method === 'PATCH') {
+      const body = await request.json().catch(() => ({}));
+      const r = await prisma.slaRule.findFirst({ where: { id } });
+      if (!r) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const data: { caseType?: string; dueDays?: number; reminderDaysBefore?: unknown; escalationNotifyRole?: string | null; isActive?: boolean } = {};
+      if (body.caseType !== undefined) data.caseType = String(body.caseType).trim();
+      if (body.dueDays !== undefined) data.dueDays = Number(body.dueDays) || 0;
+      if (body.reminderDaysBefore !== undefined) data.reminderDaysBefore = Array.isArray(body.reminderDaysBefore) ? body.reminderDaysBefore : (body.reminderDaysBefore != null ? [Number(body.reminderDaysBefore)] : []);
+      if (body.escalationNotifyRole !== undefined) data.escalationNotifyRole = body.escalationNotifyRole?.trim() || null;
+      if (body.isActive !== undefined) data.isActive = Boolean(body.isActive);
+      const updated = await prisma.slaRule.update({ where: { id }, data });
+      return NextResponse.json(updated);
+    }
+    if (method === 'DELETE') {
+      await prisma.slaRule.delete({ where: { id } }).catch(() => null);
+      return NextResponse.json({ message: 'OK' });
+    }
+  }
+  if (method === 'POST' && rest.length === 0) {
+    const body = await request.json().catch(() => ({}));
+    const caseType = (body.caseType ?? body.case_type) as string;
+    const dueDays = Number(body.dueDays ?? body.due_days ?? 30);
+    const reminderDaysBefore = Array.isArray(body.reminderDaysBefore ?? body.reminder_days_before)
+      ? (body.reminderDaysBefore ?? body.reminder_days_before).map((d: unknown) => Number(d)).filter((d: number) => d > 0)
+      : [7, 3, 1];
+    const escalationNotifyRole = (body.escalationNotifyRole ?? body.escalation_notify_role) as string | undefined;
+    if (!caseType?.trim()) return NextResponse.json({ error: 'caseType required' }, { status: 400 });
+    const created = await prisma.slaRule.create({
+      data: {
+        firmId,
+        caseType: caseType.trim(),
+        dueDays,
+        reminderDaysBefore: reminderDaysBefore as Prisma.InputJsonValue,
+        escalationNotifyRole: escalationNotifyRole?.trim() || null,
+        isActive: body.isActive !== false,
+      },
+    });
+    return NextResponse.json(created, { status: 201 });
   }
   return methodNotAllowed();
 }

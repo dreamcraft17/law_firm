@@ -103,6 +103,9 @@ export const ApiPaths = {
 
   /** /admin/export (data export / retention) */
   export: 'admin/export',
+
+  /** /admin/sla-rules (P5 SLA & Deadline) */
+  slaRules: 'admin/sla-rules',
 } as const;
 
 /** Helper endpoint paths untuk admin web */
@@ -180,6 +183,13 @@ export const adminEndpoints = {
   caseExportSummary: (id: string) => `${ApiPaths.cases}/${id}/export`,
   caseAccess: (caseId: string) => `${ApiPaths.cases}/${caseId}/access`,
   caseAccessUser: (caseId: string, userId: string) => `${ApiPaths.cases}/${caseId}/access/${userId}`,
+
+  // SLA Rules (P5)
+  slaRulesList: () => ApiPaths.slaRules,
+  slaRuleDetail: (id: string) => `${ApiPaths.slaRules}/${id}`,
+  slaRuleCreate: () => ApiPaths.slaRules,
+  slaRuleUpdate: (id: string) => `${ApiPaths.slaRules}/${id}`,
+  slaRuleDelete: (id: string) => `${ApiPaths.slaRules}/${id}`,
 
   // Search & Saved views
   search: (params?: { q?: string; types?: string; limit?: number }) => {

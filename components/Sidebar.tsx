@@ -18,6 +18,7 @@ import {
   UserPlus,
   Calendar,
   Clock,
+  Timer,
 } from 'lucide-react';
 
 const nav = [
@@ -26,6 +27,7 @@ const nav = [
   { href: '/roles', label: 'Roles & Permissions', icon: Shield },
   { href: '/leads', label: 'Intake & Lead', icon: UserPlus },
   { href: '/cases', label: 'Case Management', icon: Briefcase },
+  { href: '/sla-rules', label: 'SLA & Deadline', icon: Timer },
   { href: '/tasks', label: 'Task Workflow', icon: ListTodo },
   { href: '/time-entries', label: 'Time Tracking', icon: Clock },
   { href: '/documents', label: 'Dokumen', icon: FolderOpen },

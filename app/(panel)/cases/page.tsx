@@ -13,6 +13,9 @@ type CaseItem = {
   description?: string | null;
   status: string;
   stage?: string;
+  caseType?: string | null;
+  slaDueDate?: string | null;
+  escalatedAt?: string | null;
   clientId: string | null;
   createdAt: string;
   client?: { id: string; email?: string; name: string | null } | null;
@@ -44,6 +47,7 @@ function CasesPageContent() {
   const [formClientName, setFormClientName] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formStatus, setFormStatus] = useState<string>('pending');
+  const [formCaseType, setFormCaseType] = useState<string>('');
   const [deleteConfirm, setDeleteConfirm] = useState<CaseItem | null>(null);
   const [filterStage, setFilterStage] = useState<string>('');
   const [filterClientId, setFilterClientId] = useState<string>('');
@@ -156,6 +160,7 @@ function CasesPageContent() {
     setFormClientName('');
     setFormDescription('');
     setFormStatus('pending');
+    setFormCaseType('');
     setConflictCheckResult(null);
     setEditingCaseOverride(null);
     setModalOpen(true);
@@ -168,6 +173,7 @@ function CasesPageContent() {
     setFormClientName(c.client?.name || '');
     setFormDescription(c.description || '');
     setFormStatus(c.status);
+    setFormCaseType((c as CaseItem & { caseType?: string }).caseType ?? '');
     setConflictCheckResult(null);
     setModalOpen(true);
     const res = await adminFetch(adminEndpoints.caseDetail(c.id));
@@ -230,7 +236,9 @@ function CasesPageContent() {
             title: formTitle.trim(), 
             caseNumber: formCaseNumber.trim(),
             description: formDescription.trim(),
-            status: formStatus 
+            status: formStatus,
+            client_name: formClientName.trim() || undefined,
+            caseType: formCaseType.trim() || null,
           }),
         });
         if (!res.ok) {
@@ -245,7 +253,8 @@ function CasesPageContent() {
             caseNumber: formCaseNumber.trim(),
             client_name: formClientName.trim(),
             description: formDescription.trim(),
-            status: formStatus 
+            status: formStatus,
+            caseType: formCaseType.trim() || undefined,
           }),
         });
         if (!res.ok) {
@@ -495,6 +504,8 @@ function CasesPageContent() {
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Stage</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Status</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Klien</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-700">SLA Due</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-700">Escalasi</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-700">Aksi</th>
                 </tr>
               </thead>
@@ -515,6 +526,14 @@ function CasesPageContent() {
                     </td>
                     <td className="py-3 px-4 text-gray-600">
                       {c.client ? (c.client.name || c.client.email) : '-'}
+                    </td>
+                    <td className="py-3 px-4 text-gray-600 text-xs">
+                      {(c as CaseItem).slaDueDate ? new Date((c as CaseItem).slaDueDate!).toLocaleDateString('id-ID') : '-'}
+                    </td>
+                    <td className="py-3 px-4">
+                      {(c as CaseItem).escalatedAt ? (
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" title="SLA terlewati">Escalasi</span>
+                      ) : '-'}
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
@@ -671,6 +690,17 @@ function CasesPageContent() {
                     Pending
                   </button>
                 </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tipe Perkara (SLA)</label>
+                <input
+                  type="text"
+                  value={formCaseType}
+                  onChange={(e) => setFormCaseType(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="Contoh: litigation, corporate — untuk aturan SLA"
+                />
               </div>
               
               <div>

@@ -1102,7 +1102,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           clientId = client.id;
         }
 
-        // Create the case
+        const caseType = (body.caseType ?? body.case_type)?.trim() || null;
         const newCase = await prisma.case.create({
           data: {
             title: body.title,
@@ -1110,11 +1110,24 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
             description: body.description || null,
             clientId: clientId,
             status: body.status || 'pending',
+            caseType,
           },
           include: { client: true },
         });
 
-        return NextResponse.json(normalizeCaseForResponse(newCase), { status: 201 });
+        if (caseType) {
+          const rule = await prisma.slaRule.findFirst({
+            where: { isActive: true, caseType, OR: [{ firmId: newCase.firmId ?? undefined }, { firmId: null }] },
+            orderBy: { firmId: 'desc' },
+          });
+          if (rule) {
+            const d = new Date(newCase.createdAt);
+            d.setDate(d.getDate() + rule.dueDays);
+            await prisma.case.update({ where: { id: newCase.id }, data: { slaDueDate: d } });
+          }
+        }
+        const out = await prisma.case.findFirst({ where: { id: newCase.id }, include: { client: true } });
+        return NextResponse.json(normalizeCaseForResponse(out ?? newCase), { status: 201 });
       } catch (error) {
         console.error('Error creating case:', error);
         return NextResponse.json(

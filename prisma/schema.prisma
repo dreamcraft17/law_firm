@@ -221,8 +221,11 @@ model Case {
   description String?  @db.Text
   status      String   @default("pending") @db.VarChar(64)
   stage       String   @default("intake") @db.VarChar(32) // intake | active | on_hold | closed
+  caseType    String?  @map("case_type") @db.VarChar(64) // litigation | corporate | etc — for SLA
   clientId    String?  @map("client_id") @db.Uuid
   parties     Json?    @db.JsonB // { plaintiff?, defendant?, instansi? }
+  slaDueDate  DateTime? @map("sla_due_date") @db.Timestamptz(6)
+  escalatedAt DateTime? @map("escalated_at") @db.Timestamptz(6)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -242,7 +245,8 @@ model Case {
   approvalRequests  ApprovalRequest[]
   milestones        CaseMilestone[]
   events            Event[]
-  conflictOverride CaseConflictOverride?
+  conflictOverride  CaseConflictOverride?
+  slaRemindersSent SlaReminderSent[]
 
   @@map("cases")
 }
@@ -733,13 +737,44 @@ model CaseExpense {
 }
 
 model Notification {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String?   @map("user_id") @db.Uuid
-  title     String    @db.VarChar(500)
-  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?   @map("user_id") @db.Uuid
+  title      String    @db.VarChar(500)
+  body       String?   @db.Text
+  caseId     String?   @map("case_id") @db.Uuid
+  entityType String?   @map("entity_type") @db.VarChar(32) // sla_reminder | sla_escalation
+  readAt     DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("notifications")
+}
+
+// --- SLA & Deadline Engine (P5) ---
+model SlaRule {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firmId               String?  @map("firm_id") @db.Uuid
+  caseType             String   @map("case_type") @db.VarChar(64) // litigation | corporate | *
+  dueDays              Int      @map("due_days") @db.SmallInt // days from case createdAt
+  reminderDaysBefore   Json     @map("reminder_days_before") @db.JsonB // [7, 3, 1]
+  escalationNotifyRole String?  @map("escalation_notify_role") @db.VarChar(64) // partner | manager
+  isActive             Boolean  @default(true) @map("is_active") @db.Boolean
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([firmId, caseType])
+  @@map("sla_rules")
+}
+
+model SlaReminderSent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId     String   @map("case_id") @db.Uuid
+  daysBefore Int      @map("days_before") @db.SmallInt
+  sentAt     DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+
+  case_ Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, daysBefore])
+  @@map("sla_reminder_sent")
 }
 
 // --- Web-only tables ---

@@ -10,6 +10,8 @@ const titles: Record<string, string> = {
   '/roles': 'Roles & Permissions',
   '/leads': 'Intake & Lead',
   '/cases': 'Case Management',
+  '/sla-rules': 'SLA & Deadline',
+  '/sla-rules': 'SLA & Deadline',
   '/tasks': 'Task Workflow',
   '/documents': 'Document Management',
   '/billing': 'Billing & Finance',
