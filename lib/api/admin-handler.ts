@@ -2312,11 +2312,26 @@ async function handleEventsAdmin(rest: string[], method: string, request: NextRe
 
 async function handleReports(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
   if (method !== 'GET') return methodNotAllowed();
-  const [caseCount, closedCases, userCount, invoiceAgg, tasksCount, recentCases, taskByStatus] = await Promise.all([
+
+  const [
+    caseCount,
+    closedCases,
+    userCount,
+    invoiceAgg,
+    tasksCount,
+    recentCases,
+    taskByStatus,
+    timeEntriesAll,
+    invoicesForAging,
+    invoicesForCollection,
+    closedCasesForDuration,
+    leadCounts,
+    usersForRevenue,
+  ] = await Promise.all([
     prisma.case.count({ where: { deletedAt: null } }),
     prisma.case.count({ where: { deletedAt: null, status: 'closed' } }),
     prisma.user.count({ where: { deletedAt: null } }),
-    prisma.invoice.aggregate({ where: { deletedAt: null }, _sum: { amount: true }, _count: true }),
+    prisma.invoice.aggregate({ where: { deletedAt: null }, _sum: { amount: true, paidAmount: true }, _count: true }),
     prisma.task.count({ where: { deletedAt: null } }),
     prisma.case.findMany({
       where: { deletedAt: null },
@@ -2329,7 +2344,33 @@ async function handleReports(rest: string[], method: string, _request: NextReque
       where: { deletedAt: null },
       _count: { id: true },
     }),
+    prisma.timeEntry.findMany({
+      where: { deletedAt: null, billable: true },
+      select: { userId: true, caseId: true, hours: true, rate: true },
+    }),
+    prisma.invoice.findMany({
+      where: { deletedAt: null, status: { notIn: ['void', 'draft'] } },
+      select: { amount: true, paidAmount: true, dueDate: true, createdAt: true },
+    }),
+    prisma.invoice.findMany({
+      where: { deletedAt: null, status: { notIn: ['draft', 'void'] } },
+      select: { amount: true, paidAmount: true },
+    }),
+    prisma.case.findMany({
+      where: { deletedAt: null, status: 'closed' },
+      select: { id: true, createdAt: true, updatedAt: true },
+    }),
+    prisma.lead.groupBy({
+      by: ['status'],
+      where: { deletedAt: null },
+      _count: { id: true },
+    }),
+    prisma.user.findMany({
+      where: { deletedAt: null, role: { not: 'client' } },
+      select: { id: true, name: true },
+    }),
   ]);
+
   const activeCases = caseCount - closedCases;
   const summary = {
     totalCases: caseCount,
@@ -2344,10 +2385,136 @@ async function handleReports(rest: string[], method: string, _request: NextReque
     acc[row.status] = row._count.id;
     return acc;
   }, {});
-  if (rest[0] === 'dashboard') {
-    return NextResponse.json({ summary, recentCases, taskBreakdown, data: [] });
+
+  // --- Finance: Revenue per lawyer (from time entries, billable hours * rate) ---
+  const revenueByUser: Record<string, number> = {};
+  const userMap = new Map(usersForRevenue.map((u) => [u.id, u.name ?? u.id]));
+  for (const e of timeEntriesAll) {
+    const amt = Number(e.hours) * (e.rate != null ? Number(e.rate) : 0);
+    revenueByUser[e.userId] = (revenueByUser[e.userId] ?? 0) + amt;
   }
-  return NextResponse.json({ summary, data: [] });
+  const revenuePerLawyer = Object.entries(revenueByUser).map(([userId, revenue]) => ({
+    userId,
+    lawyerName: userMap.get(userId) ?? userId,
+    revenue: Math.round(revenue * 100) / 100,
+  })).sort((a, b) => b.revenue - a.revenue);
+
+  // --- Finance: Revenue per case ---
+  const revenueByCase: Record<string, number> = {};
+  const caseIds = [...new Set(timeEntriesAll.map((e) => e.caseId))];
+  const casesForTitles = caseIds.length > 0
+    ? await prisma.case.findMany({ where: { id: { in: caseIds } }, select: { id: true, title: true } })
+    : [];
+  const caseTitleMap = new Map(casesForTitles.map((c) => [c.id, c.title]));
+  for (const e of timeEntriesAll) {
+    const amt = Number(e.hours) * (e.rate != null ? Number(e.rate) : 0);
+    revenueByCase[e.caseId] = (revenueByCase[e.caseId] ?? 0) + amt;
+  }
+  const revenuePerCase = Object.entries(revenueByCase).map(([caseId, revenue]) => ({
+    caseId,
+    caseTitle: caseTitleMap.get(caseId) ?? caseId,
+    revenue: Math.round(revenue * 100) / 100,
+  })).sort((a, b) => b.revenue - a.revenue);
+
+  // --- Finance: Aging receivable (outstanding by age bucket) ---
+  const now = new Date();
+  const aging = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+  for (const inv of invoicesForAging) {
+    const outstanding = Number(inv.amount) - Number(inv.paidAmount);
+    if (outstanding <= 0) continue;
+    const due = inv.dueDate ? new Date(inv.dueDate) : new Date(inv.createdAt);
+    const daysOverdue = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysOverdue <= 30) aging['0-30'] += outstanding;
+    else if (daysOverdue <= 60) aging['31-60'] += outstanding;
+    else if (daysOverdue <= 90) aging['61-90'] += outstanding;
+    else aging['90+'] += outstanding;
+  }
+  const agingReceivable = aging;
+
+  // --- Finance: Collection rate ---
+  let totalInvoiced = 0;
+  let totalPaid = 0;
+  for (const inv of invoicesForCollection) {
+    totalInvoiced += Number(inv.amount);
+    totalPaid += Number(inv.paidAmount);
+  }
+  const collectionRate = totalInvoiced > 0 ? Math.round((totalPaid / totalInvoiced) * 10000) / 100 : 0;
+
+  // --- Operational: Utilization rate (billable hours / total hours per lawyer) ---
+  const totalHoursByUser: Record<string, number> = {};
+  const billableHoursByUser: Record<string, number> = {};
+  const allTimeEntries = await prisma.timeEntry.findMany({
+    where: { deletedAt: null },
+    select: { userId: true, hours: true, billable: true },
+  });
+  for (const e of allTimeEntries) {
+    const h = Number(e.hours);
+    totalHoursByUser[e.userId] = (totalHoursByUser[e.userId] ?? 0) + h;
+    if (e.billable) billableHoursByUser[e.userId] = (billableHoursByUser[e.userId] ?? 0) + h;
+  }
+  const utilizationPerLawyer = Object.entries(totalHoursByUser)
+    .filter(([, total]) => total > 0)
+    .map(([userId, total]) => {
+      const billable = billableHoursByUser[userId] ?? 0;
+      return {
+        userId,
+        lawyerName: userMap.get(userId) ?? userId,
+        totalHours: Math.round(total * 100) / 100,
+        billableHours: Math.round(billable * 100) / 100,
+        utilizationRate: Math.round((billable / total) * 10000) / 100,
+      };
+    })
+    .sort((a, b) => b.utilizationRate - a.utilizationRate);
+
+  // --- Operational: Task completion rate ---
+  const taskDone = taskByStatus.find((r) => r.status === 'done')?._count.id ?? 0;
+  const taskCompletionRate = tasksCount > 0 ? Math.round((taskDone / tasksCount) * 10000) / 100 : 0;
+
+  // --- Operational: Case duration average (closed cases, days) ---
+  let caseDurationSumDays = 0;
+  for (const c of closedCasesForDuration) {
+    caseDurationSumDays += (c.updatedAt.getTime() - c.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+  }
+  const caseDurationAverageDays = closedCasesForDuration.length > 0
+    ? Math.round((caseDurationSumDays / closedCasesForDuration.length) * 10) / 10
+    : 0;
+
+  // --- Operational: Lead conversion % ---
+  const totalLeads = leadCounts.reduce((s, r) => s + r._count.id, 0);
+  const convertedLeads = leadCounts.find((r) => r.status === 'converted')?._count.id ?? 0;
+  const leadConversionRate = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 10000) / 100 : 0;
+
+  const finance = {
+    revenuePerLawyer,
+    revenuePerCase,
+    agingReceivable,
+    collectionRate,
+    totalInvoiced,
+    totalPaid,
+  };
+  const operational = {
+    utilizationPerLawyer,
+    taskCompletionRate,
+    taskDone,
+    taskTotal: tasksCount,
+    caseDurationAverageDays,
+    closedCasesCount: closedCasesForDuration.length,
+    leadConversionRate,
+    convertedLeads,
+    totalLeads,
+  };
+
+  if (rest[0] === 'dashboard') {
+    return NextResponse.json({
+      summary,
+      recentCases,
+      taskBreakdown,
+      finance,
+      operational,
+      data: [],
+    });
+  }
+  return NextResponse.json({ summary, finance, operational, data: [] });
 }
 
 async function handleSettings(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
