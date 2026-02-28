@@ -16,6 +16,31 @@ import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-r
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const AVATAR_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
+function normalizeForConflict(s: string): string {
+  return s.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function diceSimilarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const bigrams = (str: string): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < str.length - 1; i++) {
+      const bg = str.slice(i, i + 2);
+      m.set(bg, (m.get(bg) ?? 0) + 1);
+    }
+    return m;
+  };
+  const aMap = bigrams(a);
+  const bMap = bigrams(b);
+  let intersection = 0;
+  for (const [bg, count] of aMap) intersection += Math.min(count, bMap.get(bg) ?? 0);
+  return (2 * intersection) / (a.length - 1 + (b.length - 1));
+}
+function namesConflict(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  return a.includes(b) || b.includes(a) || diceSimilarity(a, b) >= 0.8;
+}
+
 function mobileUserPayload(u: {
   id: string;
   email: string;
@@ -1022,7 +1047,6 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           where: { deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
           select: { id: true, title: true, parties: true, client: { select: { name: true } } },
         });
-        const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
         for (const c of allCases) {
           const existing: string[] = [];
           if (c.client?.name) existing.push(c.client.name);
@@ -1034,18 +1058,30 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
             });
           }
           for (const name of partyNames) {
-            const nNorm = normalize(name);
+            const nNorm = normalizeForConflict(name);
             if (!nNorm) continue;
             for (const e of existing) {
-              const eNorm = normalize(e);
-              if (eNorm && (eNorm.includes(nNorm) || nNorm.includes(eNorm))) {
-                conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap', matchedName: e });
+              const eNorm = normalizeForConflict(e);
+              if (!eNorm) continue;
+              const sim = diceSimilarity(eNorm, nNorm);
+              if (namesConflict(eNorm, nNorm)) {
+                conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap', matchedName: e, similarity: Math.round(sim * 100) });
                 break;
               }
             }
           }
         }
       }
+      // Log conflict check
+      await prisma.conflictCheckLog.create({
+        data: {
+          firmId: auth.firmId ?? null,
+          checkedBy: auth.userId ?? null,
+          inputNames: partyNames as Prisma.InputJsonValue,
+          conflicts: conflicts as unknown as Prisma.InputJsonValue,
+          hasConflict: conflicts.length > 0,
+        },
+      }).catch(() => {});
       return NextResponse.json({ hasConflict: conflicts.length > 0, conflicts });
     } catch {
       return NextResponse.json({ hasConflict: false, conflicts: [] });

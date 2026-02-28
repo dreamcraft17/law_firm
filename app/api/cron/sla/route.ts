@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 
 const CRON_SECRET = process.env.CRON_SECRET;
+// Indonesia WIB = UTC+7
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 function isAuthorized(request: NextRequest): boolean {
   if (!CRON_SECRET) return true; // allow when not set (dev)
@@ -14,15 +16,17 @@ function isAuthorized(request: NextRequest): boolean {
   return auth === CRON_SECRET;
 }
 
-function startOfDay(d: Date): Date {
-  const x = new Date(d);
-  x.setUTCHours(0, 0, 0, 0);
-  return x;
+/** Start of day in WIB (UTC+7), returned as UTC Date. */
+function startOfDayWIB(d: Date): Date {
+  const wibMs = d.getTime() + WIB_OFFSET_MS;
+  const wibMidnight = new Date(wibMs);
+  wibMidnight.setUTCHours(0, 0, 0, 0);
+  return new Date(wibMidnight.getTime() - WIB_OFFSET_MS);
 }
 
 function daysBetween(a: Date, b: Date): number {
-  const A = startOfDay(a).getTime();
-  const B = startOfDay(b).getTime();
+  const A = startOfDayWIB(a).getTime();
+  const B = startOfDayWIB(b).getTime();
   return Math.round((B - A) / (24 * 60 * 60 * 1000));
 }
 
@@ -37,8 +41,8 @@ export async function POST(request: NextRequest) {
 }
 
 async function runSlaCron(): Promise<NextResponse> {
-  const now = new Date();
-  const today = startOfDay(now);
+  const runAt = new Date();
+  const now = runAt;
   const remindersSent: string[] = [];
   const escalations: string[] = [];
 
@@ -145,6 +149,9 @@ async function runSlaCron(): Promise<NextResponse> {
       escalations.push(c.id);
     }
 
+    await prisma.cronRunLog.create({
+      data: { cronName: 'sla', runAt, success: true, remindersSent: remindersSent.length, escalations: escalations.length },
+    }).catch(() => {});
     return NextResponse.json({
       ok: true,
       remindersSent: remindersSent.length,
@@ -153,6 +160,9 @@ async function runSlaCron(): Promise<NextResponse> {
     });
   } catch (e) {
     console.error('SLA cron error', e);
+    await prisma.cronRunLog.create({
+      data: { cronName: 'sla', runAt, success: false, remindersSent: 0, escalations: 0, errorMsg: String(e) },
+    }).catch(() => {});
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
 }

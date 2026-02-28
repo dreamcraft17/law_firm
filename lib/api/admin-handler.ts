@@ -4,6 +4,7 @@
  * R0.1: Auth + permission check; token/session memuat roleId + permissions.
  */
 import bcrypt from 'bcrypt';
+import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { mkdir, writeFile } from 'fs/promises';
@@ -15,6 +16,41 @@ import { generateTotpSecret, verifyTotp, getTotpUri } from '@/lib/totp';
 import { getNextNumber, formatCaseNumber, formatInvoiceNumber } from '@/lib/numbering';
 
 const SALT_ROUNDS = 10;
+
+/** Normalize string for conflict comparison: lowercase, strip punctuation, collapse spaces. */
+function normalizeForConflict(s: string): string {
+  return s.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Dice coefficient on character bigrams — range 0..1. */
+function diceSimilarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const bigrams = (str: string): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < str.length - 1; i++) {
+      const bg = str.slice(i, i + 2);
+      m.set(bg, (m.get(bg) ?? 0) + 1);
+    }
+    return m;
+  };
+  const aMap = bigrams(a);
+  const bMap = bigrams(b);
+  let intersection = 0;
+  for (const [bg, count] of aMap) intersection += Math.min(count, bMap.get(bg) ?? 0);
+  return (2 * intersection) / (a.length - 1 + (b.length - 1));
+}
+
+/** Returns true when two normalized name strings are considered matching. */
+function namesConflict(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  return a.includes(b) || b.includes(a) || diceSimilarity(a, b) >= 0.8;
+}
+
+/** SHA-256 hex of a string. */
+function sha256(s: string): string {
+  return createHash('sha256').update(s).digest('hex');
+}
 
 function omitPassword<T extends { passwordHash?: string | null }>(u: T): Omit<T, 'passwordHash'> {
   const { passwordHash: _, ...rest } = u;
@@ -54,6 +90,7 @@ function getRequiredPermission(group: string, method: string, rest: string[]): s
     sessions: 'users.view',
     export: 'audit.view',
     'sla-rules': method === 'GET' ? 'cases.view' : 'settings.update',
+    escalations: method === 'GET' ? 'cases.view' : 'cases.update',
   };
   return map[group] ?? null;
 }
@@ -150,6 +187,8 @@ export async function handleAdmin(
         return handleExport(rest, method, request, auth);
       case 'sla-rules':
         return handleSlaRules(rest, method, request);
+      case 'escalations':
+        return handleEscalations(rest, method, request, auth);
       default:
         return NextResponse.json(
           { error: 'Not found', path: pathSegments.join('/') },
@@ -940,7 +979,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       const body = await request.json().catch(() => ({}));
       const clientId = body.clientId ?? null;
       const excludeCaseId = body.caseId ?? body.excludeCaseId ?? null;
-      const conflicts: { caseId: string; title: string; reason: string; matchedName?: string }[] = [];
+      const conflicts: { caseId: string; title: string; reason: string; matchedName?: string; similarity?: number }[] = [];
       if (clientId) {
         const sameClient = await prisma.case.findMany({
           where: { clientId, deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
@@ -969,7 +1008,6 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           where: { deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
           select: { id: true, title: true, parties: true, client: { select: { name: true } } },
         });
-        const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
         for (const c of allCases) {
           const existing: string[] = [];
           if (c.client?.name) existing.push(c.client.name);
@@ -981,18 +1019,31 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
             });
           }
           for (const name of partyNames) {
-            const nNorm = normalize(name);
+            const nNorm = normalizeForConflict(name);
             if (!nNorm) continue;
             for (const e of existing) {
-              const eNorm = normalize(e);
-              if (eNorm && (eNorm.includes(nNorm) || nNorm.includes(eNorm))) {
-                conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap', matchedName: e });
+              const eNorm = normalizeForConflict(e);
+              if (!eNorm) continue;
+              const sim = diceSimilarity(eNorm, nNorm);
+              if (namesConflict(eNorm, nNorm)) {
+                conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap', matchedName: e, similarity: Math.round(sim * 100) });
                 break;
               }
             }
           }
         }
       }
+      // Log conflict check for audit trail
+      const authLog = await getAuthFromRequest(request, 'admin').catch(() => null);
+      await prisma.conflictCheckLog.create({
+        data: {
+          firmId: authLog?.firmId ?? null,
+          checkedBy: authLog?.userId ?? null,
+          inputNames: partyNames as Prisma.InputJsonValue,
+          conflicts: conflicts as unknown as Prisma.InputJsonValue,
+          hasConflict: conflicts.length > 0,
+        },
+      }).catch(() => {});
       return NextResponse.json({ hasConflict: conflicts.length > 0, conflicts });
     } catch {
       return NextResponse.json({ hasConflict: false, conflicts: [] });
@@ -1747,11 +1798,17 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
     if (rest[1] === 'signing-request' && method === 'POST') {
       const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
       if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      if (d.esignStatus === 'signing' || d.esignStatus === 'completed') {
+        return NextResponse.json({ error: 'Dokumen sedang atau sudah dalam proses tanda tangan' }, { status: 423 });
+      }
       const body = await request.json().catch(() => ({}));
       const signers = Array.isArray(body.signers) ? body.signers : [];
       if (signers.length === 0) return NextResponse.json({ error: 'signers array required (email, name)' }, { status: 400 });
       const existing = await prisma.documentSigningRequest.findFirst({ where: { documentId: id }, include: { signers: true } });
       if (existing) return NextResponse.json({ error: 'Signing request already exists for this document' }, { status: 400 });
+      // Hash document fingerprint at time of signing request
+      const docFingerprint = `${d.id}|${d.name}|${d.fileUrl ?? ''}|${d.caseId ?? ''}|v${d.version}|${d.createdAt.toISOString()}`;
+      const docHash = sha256(docFingerprint);
       const req = await prisma.documentSigningRequest.create({
         data: {
           documentId: id,
@@ -1766,7 +1823,10 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
         },
         include: { signers: true },
       });
-      await prisma.document.update({ where: { id }, data: { esignStatus: 'pending' } }).catch(() => {});
+      await prisma.document.update({
+        where: { id },
+        data: { esignStatus: 'signing', esignDocHash: docHash, esignLockedAt: new Date() },
+      }).catch(() => {});
       return NextResponse.json(req, { status: 201 });
     }
     if (rest[1] === 'signing-request' && method === 'GET') {
@@ -1783,6 +1843,9 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       const signerId = body.signerId ?? body.signer_id;
       const signerEmail = (body.signerEmail ?? body.signer_email ?? body.email)?.trim()?.toLowerCase();
       const signatureData = (body.signatureData ?? body.signature_data) ?? null;
+      // Capture IP and user-agent for audit trail
+      const signerIp = (request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip') ?? '').split(',')[0].trim() || null;
+      const signerUserAgent = (request.headers.get('user-agent') ?? '').slice(0, 512) || null;
       const req = await prisma.documentSigningRequest.findFirst({
         where: { documentId: id },
         include: { signers: true },
@@ -1794,12 +1857,16 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       if (signer.signedAt) return NextResponse.json({ error: 'Already signed' }, { status: 400 });
       await prisma.documentSigner.update({
         where: { id: signer.id },
-        data: { signedAt: new Date(), signatureData },
+        data: { signedAt: new Date(), signatureData, signerIp, signerUserAgent },
       });
       const allSigned = req.signers.every((s) => (s.id === signer!.id ? true : !!s.signedAt));
       if (allSigned) {
         await prisma.documentSigningRequest.update({ where: { id: req.id }, data: { status: 'completed' } });
-        await prisma.document.update({ where: { id }, data: { esignStatus: 'completed', esignSignedAt: new Date() } }).catch(() => {});
+        const completionHash = sha256(`completed|${id}|${new Date().toISOString()}`);
+        await prisma.document.update({
+          where: { id },
+          data: { esignStatus: 'completed', esignSignedAt: new Date(), esignDocHash: completionHash },
+        }).catch(() => {});
       }
       const updated = await prisma.documentSigningRequest.findFirst({
         where: { id: req.id },
@@ -2985,6 +3052,57 @@ async function handleExport(rest: string[], method: string, request: NextRequest
     if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(job);
   }
+  return methodNotAllowed();
+}
+
+async function handleEscalations(rest: string[], method: string, request: NextRequest, auth: AuthUser): Promise<NextResponse> {
+  const firmId = auth.firmId ?? null;
+  const firmWhere = firmId ? { firmId } : {};
+
+  // GET /escalations — list escalated (unresolved) cases
+  if (method === 'GET' && rest.length === 0) {
+    const url = new URL(request.url);
+    const includeResolved = url.searchParams.get('includeResolved') === 'true';
+    const cases = await prisma.case.findMany({
+      where: {
+        deletedAt: null,
+        ...firmWhere,
+        escalatedAt: { not: null },
+        ...(includeResolved ? {} : { escalationResolvedAt: null }),
+      },
+      select: {
+        id: true, title: true, caseNumber: true, caseType: true, status: true,
+        slaDueDate: true, escalatedAt: true,
+        escalationResolvedAt: true, escalationNote: true,
+        client: { select: { name: true } },
+        teamMembers: { select: { userId: true, role: true, user: { select: { name: true, email: true } } } },
+      },
+      orderBy: { escalatedAt: 'desc' },
+    });
+    const summary = {
+      total: cases.length,
+      unresolved: cases.filter((c) => !c.escalationResolvedAt).length,
+      resolved: cases.filter((c) => !!c.escalationResolvedAt).length,
+    };
+    return NextResponse.json({ summary, data: cases });
+  }
+
+  const caseId = rest[0];
+
+  // POST /escalations/{caseId}/resolve — mark escalation as resolved
+  if (caseId && rest[1] === 'resolve' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : null;
+    const c = await prisma.case.findFirst({ where: { id: caseId, deletedAt: null, escalatedAt: { not: null } } });
+    if (!c) return NextResponse.json({ error: 'Escalated case not found' }, { status: 404 });
+    if (c.escalationResolvedAt) return NextResponse.json({ error: 'Already resolved' }, { status: 400 });
+    const updated = await prisma.case.update({
+      where: { id: caseId },
+      data: { escalationResolvedAt: new Date(), escalationNote: note },
+    });
+    return NextResponse.json(updated);
+  }
+
   return methodNotAllowed();
 }
 

@@ -224,8 +224,10 @@ model Case {
   caseType    String?  @map("case_type") @db.VarChar(64) // litigation | corporate | etc — for SLA
   clientId    String?  @map("client_id") @db.Uuid
   parties     Json?    @db.JsonB // { plaintiff?, defendant?, instansi? }
-  slaDueDate  DateTime? @map("sla_due_date") @db.Timestamptz(6)
-  escalatedAt DateTime? @map("escalated_at") @db.Timestamptz(6)
+  slaDueDate           DateTime? @map("sla_due_date") @db.Timestamptz(6)
+  escalatedAt          DateTime? @map("escalated_at") @db.Timestamptz(6)
+  escalationResolvedAt DateTime? @map("escalation_resolved_at") @db.Timestamptz(6)
+  escalationNote       String?   @map("escalation_note") @db.VarChar(500)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -386,6 +388,8 @@ model Document {
   esignEnvelopeId   String?   @map("esign_envelope_id") @db.VarChar(255)
   esignStatus       String?   @map("esign_status") @db.VarChar(32)
   esignSignedAt     DateTime? @map("esign_signed_at") @db.Timestamptz(6)
+  esignDocHash      String?   @map("esign_doc_hash") @db.VarChar(64)
+  esignLockedAt     DateTime? @map("esign_locked_at") @db.Timestamptz(6)
   permissionPolicy  Json?     @map("permission_policy") @db.JsonB
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -420,9 +424,11 @@ model DocumentSigner {
   email         String    @db.VarChar(255)
   name          String    @db.VarChar(255)
   sortOrder     Int       @default(0) @map("sort_order") @db.SmallInt
-  signedAt      DateTime? @map("signed_at") @db.Timestamptz(6)
-  signatureData String?   @map("signature_data") @db.Text
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  signedAt        DateTime? @map("signed_at") @db.Timestamptz(6)
+  signatureData   String?   @map("signature_data") @db.Text
+  signerIp        String?   @map("signer_ip") @db.VarChar(64)
+  signerUserAgent String?   @map("signer_user_agent") @db.VarChar(512)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   request DocumentSigningRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
@@ -775,6 +781,30 @@ model SlaReminderSent {
 
   @@unique([caseId, daysBefore])
   @@map("sla_reminder_sent")
+}
+
+model ConflictCheckLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firmId      String?  @map("firm_id") @db.Uuid
+  checkedBy   String?  @map("checked_by") @db.Uuid
+  inputNames  Json     @map("input_names") @db.JsonB
+  conflicts   Json     @map("conflicts") @db.JsonB
+  hasConflict Boolean  @map("has_conflict")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("conflict_check_logs")
+}
+
+model CronRunLog {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cronName      String   @map("cron_name") @db.VarChar(64)
+  runAt         DateTime @map("run_at") @db.Timestamptz(6)
+  success       Boolean
+  remindersSent Int      @default(0) @map("reminders_sent") @db.SmallInt
+  escalations   Int      @default(0) @db.SmallInt
+  errorMsg      String?  @map("error_msg") @db.Text
+
+  @@map("cron_run_logs")
 }
 
 // --- Web-only tables ---
