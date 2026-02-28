@@ -2228,12 +2228,23 @@ async function handleEventsAdmin(rest: string[], method: string, request: NextRe
 
 async function handleReports(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
   if (method !== 'GET') return methodNotAllowed();
-  const [caseCount, closedCases, userCount, invoiceAgg, tasksCount] = await Promise.all([
+  const [caseCount, closedCases, userCount, invoiceAgg, tasksCount, recentCases, taskByStatus] = await Promise.all([
     prisma.case.count({ where: { deletedAt: null } }),
     prisma.case.count({ where: { deletedAt: null, status: 'closed' } }),
     prisma.user.count({ where: { deletedAt: null } }),
     prisma.invoice.aggregate({ where: { deletedAt: null }, _sum: { amount: true }, _count: true }),
     prisma.task.count({ where: { deletedAt: null } }),
+    prisma.case.findMany({
+      where: { deletedAt: null },
+      orderBy: { updatedAt: 'desc' },
+      take: 5,
+      include: { client: { select: { id: true, name: true } } },
+    }),
+    prisma.task.groupBy({
+      by: ['status'],
+      where: { deletedAt: null },
+      _count: { id: true },
+    }),
   ]);
   const activeCases = caseCount - closedCases;
   const summary = {
@@ -2245,7 +2256,13 @@ async function handleReports(rest: string[], method: string, _request: NextReque
     totalRevenue: Number(invoiceAgg._sum.amount ?? 0),
     totalTasks: tasksCount,
   };
-  if (rest[0] === 'dashboard') return NextResponse.json({ summary, data: [] });
+  const taskBreakdown = taskByStatus.reduce<Record<string, number>>((acc, row) => {
+    acc[row.status] = row._count.id;
+    return acc;
+  }, {});
+  if (rest[0] === 'dashboard') {
+    return NextResponse.json({ summary, recentCases, taskBreakdown, data: [] });
+  }
   return NextResponse.json({ summary, data: [] });
 }
 
