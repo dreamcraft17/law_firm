@@ -2261,31 +2261,7 @@ async function handleReports(rest: string[], method: string, _request: NextReque
     return acc;
   }, {});
   if (rest[0] === 'dashboard') {
-    const since = new Date();
-    since.setHours(since.getHours() - 24, 0, 0, 0);
-    const logs = await prisma.auditLog.findMany({
-      where: { createdAt: { gte: since } },
-      select: { createdAt: true },
-    });
-    const buckets: Record<string, number> = {};
-    for (let i = 0; i < 24; i++) {
-      const t = new Date(since);
-      t.setHours(t.getHours() + i, 0, 0, 0);
-      const key = t.toISOString().slice(0, 13);
-      buckets[key] = 0;
-    }
-    for (const log of logs) {
-      const key = new Date(log.createdAt).toISOString().slice(0, 13);
-      if (buckets[key] !== undefined) buckets[key]++;
-    }
-    const activityByHour = Object.entries(buckets)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, count]) => {
-        const d = new Date(key);
-        const label = d.getHours().toString().padStart(2, '0') + ':00';
-        return { hour: label, count };
-      });
-    return NextResponse.json({ summary, recentCases, taskBreakdown, activityByHour, data: [] });
+    return NextResponse.json({ summary, recentCases, taskBreakdown, data: [] });
   }
   return NextResponse.json({ summary, data: [] });
 }

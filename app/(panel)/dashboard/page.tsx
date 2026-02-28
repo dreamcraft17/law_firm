@@ -15,8 +15,6 @@ import {
   AreaChart,
   Area,
   Legend,
-  LineChart,
-  Line,
 } from 'recharts';
 
 type Summary = {
@@ -48,11 +46,8 @@ function getLast6Months(): { label: string; bulan: string }[] {
   });
 }
 
-type ActivityPoint = { hour: string; count: number };
-
 export default function DashboardPage() {
   const [summary, setSummary] = useState<Summary>({});
-  const [activityByHour, setActivityByHour] = useState<ActivityPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,10 +60,7 @@ export default function DashboardPage() {
         const res = await adminFetch(adminEndpoints.reportsDashboard());
         if (!res.ok) throw new Error(res.statusText);
         const json = await res.json();
-        if (!cancelled) {
-          setSummary(json.summary ?? json);
-          setActivityByHour(Array.isArray(json.activityByHour) ? json.activityByHour : []);
-        }
+        if (!cancelled) setSummary(json.summary ?? json);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Gagal memuat');
       } finally {
@@ -109,12 +101,6 @@ export default function DashboardPage() {
       { name: 'Perkara Ditutup', jumlah: closed, fill: '#10b981' },
     ].filter((d) => d.jumlah > 0);
   }, [summary.activeCases, summary.closedCases]);
-
-  // Data aktivitas 24 jam terakhir (real-time dari audit log)
-  const activityChartData = useMemo(
-    () => activityByHour.map((d) => ({ hour: d.hour, count: d.count })),
-    [activityByHour],
-  );
 
   // Data untuk grafik area: trend 6 bulan (mock dari total revenue/cases)
   const trendData = useMemo(() => {
@@ -233,43 +219,6 @@ export default function DashboardPage() {
                 </ResponsiveContainer>
               </div>
               <p className="text-xs text-slate-500 mt-2">Estimasi distribusi berdasarkan total data. Data aktual per bulan dapat ditambah dari backend.</p>
-            </div>
-
-            {/* Grafik aktivitas 24 jam (real-time dari audit log) */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-card p-6 xl:col-span-2">
-              <h3 className="text-sm font-semibold text-slate-800 mb-1">Aktivitas 24 Jam Terakhir</h3>
-              <p className="text-xs text-slate-500 mb-4">Event sistem (login, update, create) per jam — data real-time dari audit log</p>
-              <div className="h-[200px]">
-                {activityChartData.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-slate-400 text-sm">
-                    Belum ada aktivitas tercatat
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={activityChartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                      <XAxis dataKey="hour" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStartEnd" />
-                      <YAxis tick={{ fontSize: 10, fill: '#64748b' }} width={28} allowDecimals={false} />
-                      <Tooltip
-                        contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
-                        formatter={(value: number | undefined) => [value ?? 0, 'Event']}
-                        labelFormatter={(label) => label}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="count"
-                        stroke="#dc2626"
-                        strokeWidth={2}
-                        dot={{ fill: '#dc2626', r: 2 }}
-                        isAnimationActive={true}
-                        animationDuration={800}
-                        animationEasing="ease-out"
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-              <p className="text-xs text-slate-500 mt-2">Sumber: audit log (login, perubahan case/task/dokumen, dll). Refresh halaman untuk data terbaru.</p>
             </div>
           </div>
         </>
