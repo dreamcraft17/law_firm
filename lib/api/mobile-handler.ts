@@ -1204,6 +1204,13 @@ async function handleEvents(rest: string[], method: string, request: NextRequest
       where.caseId = caseId;
     }
     if (taskId) where.taskId = taskId;
+    // Klien hanya lihat event dari kasus/lead milik mereka
+    if (auth.clientId && !caseId) {
+      where.OR = [
+        { case_: { clientId: auth.clientId } },
+        { lead: { clientId: auth.clientId } },
+      ];
+    }
     const list = await prisma.event.findMany({
       where,
       orderBy: { startAt: 'asc' },

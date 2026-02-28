@@ -2173,7 +2173,16 @@ async function handleEventsAdmin(rest: string[], method: string, request: NextRe
       where,
       orderBy: { startAt: 'asc' },
       take: 300,
-      include: { case_: { select: { id: true, title: true } }, task: { select: { id: true, title: true } } },
+      include: {
+        case_: {
+          include: {
+            teamMembers: { include: { user: { select: { id: true, name: true } } } },
+            client: { select: { id: true, name: true } },
+          },
+        },
+        task: { select: { id: true, title: true } },
+        lead: { include: { client: { select: { id: true, name: true } } } },
+      },
     });
     return NextResponse.json({ data: list });
   }

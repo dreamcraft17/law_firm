@@ -15,8 +15,20 @@ type EventItem = {
   taskId?: string | null;
   location?: string | null;
   reminderMinutes?: number | null;
-  case_?: { id: string; title: string; caseNumber?: string | null } | null;
+  case_?: {
+    id: string;
+    title: string;
+    caseNumber?: string | null;
+    teamMembers?: Array<{ user: { id: string; name: string | null } }>;
+    client?: { id: string; name: string } | null;
+  } | null;
   task?: { id: string; title: string } | null;
+  lead?: {
+    id: string;
+    name: string;
+    email?: string | null;
+    client?: { id: string; name: string } | null;
+  } | null;
 };
 
 export default function EventsPage() {
@@ -145,6 +157,8 @@ export default function EventsPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="text-left p-3">Judul</th>
+                  <th className="text-left p-3">Pengaju</th>
+                  <th className="text-left p-3">Pengacara</th>
                   <th className="text-left p-3">Mulai</th>
                   <th className="text-left p-3">Selesai</th>
                   <th className="text-left p-3">Case / Task</th>
@@ -153,18 +167,29 @@ export default function EventsPage() {
                 </tr>
               </thead>
               <tbody>
-                {list.map((ev) => (
-                  <tr key={ev.id} className="border-t border-gray-100">
-                    <td className="p-3 font-medium">{ev.title}</td>
-                    <td className="p-3 text-gray-600">{new Date(ev.startAt).toLocaleString('id-ID')}</td>
-                    <td className="p-3 text-gray-600">{ev.endAt ? new Date(ev.endAt).toLocaleString('id-ID') : '—'}</td>
-                    <td className="p-3 text-gray-600">
-                      {ev.case_ ? `${ev.case_.title}${ev.case_.caseNumber ? ` (${ev.case_.caseNumber})` : ''}` : ev.task ? ev.task.title : '—'}
-                    </td>
-                    <td className="p-3 text-gray-600">{ev.location || '—'}</td>
-                    <td className="p-3 text-gray-600">{ev.reminderMinutes != null ? `${ev.reminderMinutes} menit` : '—'}</td>
-                  </tr>
-                ))}
+                {list.map((ev) => {
+                  const pengaju = ev.lead
+                    ? ev.lead.client?.name ?? ev.lead.name
+                    : ev.case_?.client?.name ?? null;
+                  const pengacara =
+                    ev.case_?.teamMembers?.length && ev.case_.teamMembers[0]?.user?.name
+                      ? ev.case_.teamMembers.map((m) => m.user.name).filter(Boolean).join(', ')
+                      : null;
+                  return (
+                    <tr key={ev.id} className="border-t border-gray-100">
+                      <td className="p-3 font-medium">{ev.title}</td>
+                      <td className="p-3 text-gray-600">{pengaju ?? '—'}</td>
+                      <td className="p-3 text-gray-600">{pengacara ?? 'Belum dipilih'}</td>
+                      <td className="p-3 text-gray-600">{new Date(ev.startAt).toLocaleString('id-ID')}</td>
+                      <td className="p-3 text-gray-600">{ev.endAt ? new Date(ev.endAt).toLocaleString('id-ID') : '—'}</td>
+                      <td className="p-3 text-gray-600">
+                        {ev.case_ ? `${ev.case_.title}${ev.case_.caseNumber ? ` (${ev.case_.caseNumber})` : ''}` : ev.task ? ev.task.title : '—'}
+                      </td>
+                      <td className="p-3 text-gray-600">{ev.location || '—'}</td>
+                      <td className="p-3 text-gray-600">{ev.reminderMinutes != null ? `${ev.reminderMinutes} menit` : '—'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
