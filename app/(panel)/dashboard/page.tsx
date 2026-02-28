@@ -248,7 +248,7 @@ export default function DashboardPage() {
                     <YAxis domain={[0, 1.1]} tick={{ fontSize: 10, fill: '#64748b' }} width={24} tickFormatter={() => ''} />
                     <Tooltip
                       contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
-                      formatter={(value: number) => [(Number(value) * 100).toFixed(0) + '%', 'Aktivitas']}
+                      formatter={(value: number | undefined) => [(Number(value ?? 0) * 100).toFixed(0) + '%', 'Aktivitas']}
                       labelFormatter={() => ''}
                     />
                     <Line
