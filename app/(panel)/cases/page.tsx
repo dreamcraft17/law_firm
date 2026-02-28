@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/api-client';
 import { adminEndpoints } from '@/lib/api-paths';
-import { Pencil, Trash2, FolderPlus, Filter, Save, Flag, UserPlus } from 'lucide-react';
+import { Pencil, Trash2, FolderPlus, Filter, Save, Flag, UserPlus, AlertTriangle, CheckCircle } from 'lucide-react';
 
 type CaseItem = {
   id: string;
@@ -66,6 +66,10 @@ function CasesPageContent() {
   const [usersForTeam, setUsersForTeam] = useState<UserItem[]>([]);
   const [addTeamUserId, setAddTeamUserId] = useState('');
   const [teamSuccessMessage, setTeamSuccessMessage] = useState<string | null>(null);
+  const [conflictCheckResult, setConflictCheckResult] = useState<{ hasConflict: boolean; conflicts: { caseId: string; title: string; reason: string; matchedName?: string }[] } | null>(null);
+  const [conflictCheckLoading, setConflictCheckLoading] = useState(false);
+  const [overrideSaving, setOverrideSaving] = useState(false);
+  const [editingCaseOverride, setEditingCaseOverride] = useState<{ approvedBy?: { name?: string } } | null>(null);
 
   const buildParams = useCallback(() => {
     const p: { stage?: string; clientId?: string; from?: string; to?: string } = {};
@@ -152,17 +156,67 @@ function CasesPageContent() {
     setFormClientName('');
     setFormDescription('');
     setFormStatus('pending');
+    setConflictCheckResult(null);
+    setEditingCaseOverride(null);
     setModalOpen(true);
   };
 
-  const openEdit = (c: CaseItem) => {
+  const openEdit = async (c: CaseItem) => {
     setEditing(c);
     setFormTitle(c.title);
     setFormCaseNumber(c.caseNumber || '');
     setFormClientName(c.client?.name || '');
     setFormDescription(c.description || '');
     setFormStatus(c.status);
+    setConflictCheckResult(null);
     setModalOpen(true);
+    const res = await adminFetch(adminEndpoints.caseDetail(c.id));
+    if (res.ok) {
+      const data = await res.json();
+      setEditingCaseOverride(data.conflictOverride ?? null);
+    } else {
+      setEditingCaseOverride(null);
+    }
+  };
+
+  const runConflictCheck = async () => {
+    setConflictCheckLoading(true);
+    setConflictCheckResult(null);
+    try {
+      const clientId = editing ? (editing as CaseItem & { clientId?: string }).clientId ?? undefined : undefined;
+      const res = await adminFetch(adminEndpoints.caseConflictCheck(), {
+        method: 'POST',
+        body: JSON.stringify({
+          client_name: formClientName.trim() || undefined,
+          clientId: clients.find((x) => x.name === formClientName.trim())?.id ?? clientId,
+          excludeCaseId: editing?.id ?? undefined,
+        }),
+      });
+      const data = await res.json();
+      setConflictCheckResult({ hasConflict: data.hasConflict ?? false, conflicts: data.conflicts ?? [] });
+    } catch {
+      setConflictCheckResult({ hasConflict: false, conflicts: [] });
+    } finally {
+      setConflictCheckLoading(false);
+    }
+  };
+
+  const handleConflictOverride = async (caseId: string) => {
+    setOverrideSaving(true);
+    try {
+      const res = await adminFetch(adminEndpoints.caseConflictOverride(caseId), {
+        method: 'POST',
+        body: JSON.stringify({ note: 'Override disetujui partner' }),
+      });
+      if (!res.ok) throw new Error(res.statusText);
+      const data = await res.json();
+      setEditingCaseOverride(data.conflictOverride ?? null);
+      fetchCases();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Gagal override');
+    } finally {
+      setOverrideSaving(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -536,7 +590,50 @@ function CasesPageContent() {
                   placeholder="Nama klien"
                 />
               </div>
-              
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={runConflictCheck}
+                  disabled={conflictCheckLoading || !formClientName.trim()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-amber-500 text-amber-700 rounded-lg hover:bg-amber-50 disabled:opacity-50"
+                >
+                  <AlertTriangle size={16} />
+                  {conflictCheckLoading ? 'Memeriksa...' : 'Cek konflik'}
+                </button>
+                {conflictCheckResult && (
+                  <span className={`text-sm ${conflictCheckResult.hasConflict ? 'text-amber-600' : 'text-green-600'}`}>
+                    {conflictCheckResult.hasConflict
+                      ? `${conflictCheckResult.conflicts.length} konflik ditemukan`
+                      : 'Tidak ada konflik'}
+                  </span>
+                )}
+              </div>
+              {conflictCheckResult?.hasConflict && conflictCheckResult.conflicts.length > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+                  <p className="font-medium text-amber-800 mb-2">Peringatan: nama/klien tumpang tindih dengan perkara lain:</p>
+                  <ul className="list-disc list-inside space-y-1 text-amber-700">
+                    {conflictCheckResult.conflicts.slice(0, 5).map((x, i) => (
+                      <li key={i}>{x.title} {x.matchedName ? `(${x.matchedName})` : ''}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-amber-600">Anda tetap dapat membuat perkara. Partner dapat menyetujui override konflik nanti.</p>
+                </div>
+              )}
+              {editing && editingCaseOverride && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                  <span className="inline-flex items-center gap-1"><CheckCircle size={16} /> Override konflik disetujui oleh: {editingCaseOverride.approvedBy?.name ?? 'Partner'}</span>
+                </div>
+              )}
+              {editing && !editingCaseOverride && conflictCheckResult?.hasConflict && (
+                <button
+                  type="button"
+                  onClick={() => editing && handleConflictOverride(editing.id)}
+                  disabled={overrideSaving}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {overrideSaving ? '...' : 'Setujui override konflik (partner)'}
+                </button>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nomor Perkara</label>
                 <input

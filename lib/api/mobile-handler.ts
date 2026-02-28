@@ -987,6 +987,71 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Conflict check (same logic as admin; run before treating first segment as case id)
+  if (rest[0] === 'conflict-check' && method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const clientId = body.clientId ?? null;
+      const excludeCaseId = body.caseId ?? body.excludeCaseId ?? null;
+      const conflicts: { caseId: string; title: string; reason: string; matchedName?: string }[] = [];
+      if (clientId) {
+        const sameClient = await prisma.case.findMany({
+          where: { clientId, deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
+          select: { id: true, title: true },
+        });
+        sameClient.forEach((c) => conflicts.push({ caseId: c.id, title: c.title, reason: 'same_client', matchedName: 'Klien sama' }));
+      }
+      const partyNames: string[] = [];
+      const parties = body.parties as Record<string, string> | undefined;
+      if (parties && typeof parties === 'object') {
+        ['plaintiff', 'defendant', 'instansi', 'opposing_party'].forEach((k) => {
+          const v = parties[k];
+          if (v && typeof v === 'string' && v.trim()) partyNames.push(v.trim());
+        });
+      }
+      if (Array.isArray(body.partyNames)) {
+        body.partyNames.forEach((n: unknown) => {
+          if (typeof n === 'string' && n.trim()) partyNames.push(n.trim());
+        });
+      }
+      if (body.client_name && typeof body.client_name === 'string' && body.client_name.trim()) {
+        partyNames.push(body.client_name.trim());
+      }
+      if (partyNames.length > 0) {
+        const allCases = await prisma.case.findMany({
+          where: { deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
+          select: { id: true, title: true, parties: true, client: { select: { name: true } } },
+        });
+        const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+        for (const c of allCases) {
+          const existing: string[] = [];
+          if (c.client?.name) existing.push(c.client.name);
+          const p = c.parties as Record<string, string> | null;
+          if (p && typeof p === 'object') {
+            ['plaintiff', 'defendant', 'instansi', 'opposing_party'].forEach((k) => {
+              const v = p[k];
+              if (v && typeof v === 'string') existing.push(v);
+            });
+          }
+          for (const name of partyNames) {
+            const nNorm = normalize(name);
+            if (!nNorm) continue;
+            for (const e of existing) {
+              const eNorm = normalize(e);
+              if (eNorm && (eNorm.includes(nNorm) || nNorm.includes(eNorm))) {
+                conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap', matchedName: e });
+                break;
+              }
+            }
+          }
+        }
+      }
+      return NextResponse.json({ hasConflict: conflicts.length > 0, conflicts });
+    } catch {
+      return NextResponse.json({ hasConflict: false, conflicts: [] });
+    }
+  }
+
   const id = rest[0];
   const baseWhere = { deletedAt: null, ...caseAccessWhere(auth) };
 
@@ -1273,6 +1338,41 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
   const caseWhere = caseAccessWhere(auth);
 
   const isClient = !!auth.clientId;
+
+  // E-Sign: list documents waiting for my signature
+  if (rest[0] === 'to-sign' && method === 'GET') {
+    const user = await prisma.user.findUnique({ where: { id: auth.userId }, select: { email: true } });
+    const email = user?.email?.trim().toLowerCase();
+    if (!email) return NextResponse.json({ data: [] });
+    const signers = await prisma.documentSigner.findMany({
+      where: { email, signedAt: null },
+      include: {
+        request: {
+          include: {
+            document: {
+              select: { id: true, name: true, caseId: true },
+              include: { case: { select: { id: true, title: true } } },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const list: { signerId: string; requestId: string; documentId: string; documentName: string | null; caseTitle: string | null }[] = [];
+    for (const s of signers) {
+      if (!s.request.document) continue;
+      if (s.request.document.caseId && !(await canAccessCase(s.request.document.caseId, auth))) continue;
+      list.push({
+        signerId: s.id,
+        requestId: s.requestId,
+        documentId: s.request.documentId,
+        documentName: s.request.document.name,
+        caseTitle: s.request.document.case?.title ?? null,
+      });
+    }
+    return NextResponse.json({ data: list });
+  }
+
   if (rest[0] === 'case' && rest[1]) {
     const caseId = rest[1];
     if (!(await canAccessCase(caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -1320,6 +1420,47 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       if (d.caseId && !(await canAccessCase(d.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       const logs = await prisma.documentAuditLog.findMany({ where: { documentId: id }, orderBy: { createdAt: 'desc' }, take: 100 });
       return NextResponse.json({ data: logs });
+    }
+    if (rest[1] === 'signing-request' && method === 'GET') {
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      if (d.caseId && !(await canAccessCase(d.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      const req = await prisma.documentSigningRequest.findFirst({
+        where: { documentId: id },
+        include: { signers: { orderBy: { sortOrder: 'asc' } } },
+      });
+      return NextResponse.json(req ?? { status: 'none', signers: [] });
+    }
+    if (rest[1] === 'signing-request' && rest[2] === 'sign' && method === 'POST') {
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const body = await request.json().catch(() => ({}));
+      const signerId = body.signerId ?? body.signer_id;
+      const user = await prisma.user.findUnique({ where: { id: auth.userId }, select: { email: true } });
+      const signerEmail = (body.signerEmail ?? body.email ?? user?.email)?.trim()?.toLowerCase();
+      const req = await prisma.documentSigningRequest.findFirst({
+        where: { documentId: id },
+        include: { signers: true },
+      });
+      if (!req) return NextResponse.json({ error: 'Signing request not found' }, { status: 404 });
+      if (req.status === 'completed') return NextResponse.json({ error: 'Already completed' }, { status: 400 });
+      let signer = signerId ? req.signers.find((s) => s.id === signerId) : req.signers.find((s) => s.email === signerEmail);
+      if (!signer) return NextResponse.json({ error: 'Signer not found or not authorized' }, { status: 404 });
+      if (signer.signedAt) return NextResponse.json({ error: 'Already signed' }, { status: 400 });
+      await prisma.documentSigner.update({
+        where: { id: signer.id },
+        data: { signedAt: new Date(), signatureData: (body.signatureData ?? body.signature_data) ?? null },
+      });
+      const allSigned = req.signers.every((s) => (s.id === signer!.id ? true : !!s.signedAt));
+      if (allSigned) {
+        await prisma.documentSigningRequest.update({ where: { id: req.id }, data: { status: 'completed' } });
+        await prisma.document.update({ where: { id }, data: { esignStatus: 'completed', esignSignedAt: new Date() } }).catch(() => {});
+      }
+      const updated = await prisma.documentSigningRequest.findFirst({
+        where: { id: req.id },
+        include: { signers: { orderBy: { sortOrder: 'asc' } } },
+      });
+      return NextResponse.json(updated);
     }
     if (method === 'GET') {
       const d = await prisma.document.findFirst({

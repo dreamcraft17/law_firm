@@ -42,6 +42,13 @@ export default function DocumentsPage() {
   const [newTemplateName, setNewTemplateName] = useState('');
   const [newTemplateCategory, setNewTemplateCategory] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [signingRequest, setSigningRequest] = useState<{
+    id?: string;
+    status: string;
+    signers?: { id: string; email: string; name: string; signedAt?: string | null }[];
+  } | null>(null);
+  const [signingRequestSaving, setSigningRequestSaving] = useState(false);
+  const [newSigners, setNewSigners] = useState<{ email: string; name: string }[]>([{ email: '', name: '' }]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -138,12 +145,51 @@ export default function DocumentsPage() {
 
   const openDetail = async (d: DocumentItem) => {
     setDetailDoc(d);
-    const res = await adminFetch(adminEndpoints.documentAuditLog(d.id));
-    if (res.ok) {
-      const j = await res.json();
+    setSigningRequest(null);
+    const [auditRes, signRes] = await Promise.all([
+      adminFetch(adminEndpoints.documentAuditLog(d.id)),
+      adminFetch(adminEndpoints.documentSigningRequestGet(d.id)),
+    ]);
+    if (auditRes.ok) {
+      const j = await auditRes.json();
       setAuditLogs(Array.isArray(j?.data) ? j.data : []);
     } else {
       setAuditLogs([]);
+    }
+    if (signRes.ok) {
+      const j = await signRes.json();
+      if (j.id || j.status) setSigningRequest({ id: j.id, status: j.status ?? 'none', signers: j.signers ?? [] });
+      else setSigningRequest(null);
+    }
+  };
+
+  const handleCreateSigningRequest = async () => {
+    if (!detailDoc) return;
+    const signers = newSigners.filter((s) => s.email.trim());
+    if (signers.length === 0) {
+      setError('Minimal satu penandatangan (email)');
+      return;
+    }
+    setSigningRequestSaving(true);
+    setError(null);
+    try {
+      const res = await adminFetch(adminEndpoints.documentSigningRequestCreate(detailDoc.id), {
+        method: 'POST',
+        body: JSON.stringify({
+          signers: signers.map((s) => ({ email: s.email.trim(), name: (s.name || s.email).trim() })),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || res.statusText);
+      }
+      const data = await res.json();
+      setSigningRequest({ id: data.id, status: data.status ?? 'pending', signers: data.signers ?? [] });
+      setNewSigners([{ email: '', name: '' }]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Gagal buat permintaan tanda tangan');
+    } finally {
+      setSigningRequestSaving(false);
     }
   };
 
@@ -185,6 +231,15 @@ export default function DocumentsPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Gagal kirim untuk tanda tangan');
     }
+  };
+
+  const addSignerRow = () => setNewSigners((prev) => [...prev, { email: '', name: '' }]);
+  const updateSignerRow = (i: number, field: 'email' | 'name', value: string) => {
+    setNewSigners((prev) => {
+      const next = [...prev];
+      next[i] = { ...next[i], [field]: value };
+      return next;
+    });
   };
 
   const handleCreateTemplate = async (e: React.FormEvent) => {
@@ -451,6 +506,38 @@ export default function DocumentsPage() {
                 <p className="text-sm text-amber-700 mb-2"><Lock className="w-4 h-4 inline" /> Checked out by: {detailDoc.checkedOutByUser.name}</p>
               )}
               {detailDoc.esignStatus && <p className="text-sm mb-2">E-sign: <span className="font-medium">{detailDoc.esignStatus}</span></p>}
+              <div className="mt-4 border-t pt-4">
+                <h4 className="font-medium text-gray-800 mb-2">E-Signature</h4>
+                {signingRequest?.id ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-600">Status: <span className="font-medium">{signingRequest.status}</span></p>
+                    <ul className="text-xs space-y-1">
+                      {(signingRequest.signers ?? []).map((s) => (
+                        <li key={s.id} className="flex items-center gap-2">
+                          {s.signedAt ? <span className="text-green-600">✓</span> : <span className="text-amber-600">○</span>}
+                          {s.name || s.email} {s.signedAt && <span className="text-gray-500">— {new Date(s.signedAt).toLocaleString('id-ID')}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-600 mb-2">Tambahkan penandatangan (email wajib)</p>
+                    {newSigners.map((s, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <input type="email" value={s.email} onChange={(e) => updateSignerRow(i, 'email', e.target.value)} placeholder="Email" className="border border-gray-300 rounded px-2 py-1 text-sm flex-1" />
+                        <input type="text" value={s.name} onChange={(e) => updateSignerRow(i, 'name', e.target.value)} placeholder="Nama" className="border border-gray-300 rounded px-2 py-1 text-sm w-32" />
+                      </div>
+                    ))}
+                    <div className="flex gap-2">
+                      <button type="button" onClick={addSignerRow} className="text-xs text-[#1B4965] hover:underline">+ Tambah penandatangan</button>
+                      <button type="button" onClick={handleCreateSigningRequest} disabled={signingRequestSaving} className="px-3 py-1.5 bg-[#1B4965] text-white rounded text-sm disabled:opacity-50">
+                        {signingRequestSaving ? '...' : 'Buat permintaan tanda tangan'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="mt-4">
                 <h4 className="font-medium text-gray-800 mb-2 flex items-center gap-1"><History className="w-4 h-4" /> Audit log</h4>
                 <ul className="text-xs space-y-1 max-h-40 overflow-y-auto">

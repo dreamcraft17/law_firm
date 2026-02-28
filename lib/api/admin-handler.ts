@@ -931,15 +931,99 @@ async function handleDocumentTemplates(rest: string[], method: string, request: 
 }
 
 async function handleCases(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  // Conflict check: must run before treating first segment as case id
+  if (rest[0] === 'conflict-check' && method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const clientId = body.clientId ?? null;
+      const excludeCaseId = body.caseId ?? body.excludeCaseId ?? null;
+      const conflicts: { caseId: string; title: string; reason: string; matchedName?: string }[] = [];
+      if (clientId) {
+        const sameClient = await prisma.case.findMany({
+          where: { clientId, deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
+          select: { id: true, title: true },
+        });
+        sameClient.forEach((c) => conflicts.push({ caseId: c.id, title: c.title, reason: 'same_client', matchedName: 'Klien sama' }));
+      }
+      const partyNames: string[] = [];
+      const parties = body.parties as Record<string, string> | undefined;
+      if (parties && typeof parties === 'object') {
+        ['plaintiff', 'defendant', 'instansi', 'opposing_party'].forEach((k) => {
+          const v = parties[k];
+          if (v && typeof v === 'string' && v.trim()) partyNames.push(v.trim());
+        });
+      }
+      if (Array.isArray(body.partyNames)) {
+        body.partyNames.forEach((n: unknown) => {
+          if (typeof n === 'string' && n.trim()) partyNames.push(n.trim());
+        });
+      }
+      if (body.client_name && typeof body.client_name === 'string' && body.client_name.trim()) {
+        partyNames.push(body.client_name.trim());
+      }
+      if (partyNames.length > 0) {
+        const allCases = await prisma.case.findMany({
+          where: { deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
+          select: { id: true, title: true, parties: true, client: { select: { name: true } } },
+        });
+        const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+        for (const c of allCases) {
+          const existing: string[] = [];
+          if (c.client?.name) existing.push(c.client.name);
+          const p = c.parties as Record<string, string> | null;
+          if (p && typeof p === 'object') {
+            ['plaintiff', 'defendant', 'instansi', 'opposing_party'].forEach((k) => {
+              const v = p[k];
+              if (v && typeof v === 'string') existing.push(v);
+            });
+          }
+          for (const name of partyNames) {
+            const nNorm = normalize(name);
+            if (!nNorm) continue;
+            for (const e of existing) {
+              const eNorm = normalize(e);
+              if (eNorm && (eNorm.includes(nNorm) || nNorm.includes(eNorm))) {
+                conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap', matchedName: e });
+                break;
+              }
+            }
+          }
+        }
+      }
+      return NextResponse.json({ hasConflict: conflicts.length > 0, conflicts });
+    } catch {
+      return NextResponse.json({ hasConflict: false, conflicts: [] });
+    }
+  }
+
   const id = rest[0];
   if (id) {
+    if (rest[1] === 'conflict-override' && method === 'POST') {
+      const auth = await getAuthFromRequest(request, 'admin');
+      if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      const caseExists = await prisma.case.findFirst({ where: { id, deletedAt: null } });
+      if (!caseExists) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const body = await request.json().catch(() => ({}));
+      await prisma.caseConflictOverride.upsert({
+        where: { caseId: id },
+        create: { caseId: id, approvedById: auth.userId, note: (body.note as string)?.trim() || null },
+        update: { approvedById: auth.userId, note: (body.note as string)?.trim() ?? undefined },
+      });
+      const c = await prisma.case.findFirst({
+        where: { id },
+        include: { client: true, conflictOverride: { include: { approvedBy: { select: { id: true, name: true } } } } },
+      });
+      return NextResponse.json(normalizeCaseForResponse(c));
+    }
     if (method === 'GET') {
       const c = await prisma.case.findFirst({
         where: { id, deletedAt: null },
-        include: { client: true },
+        include: { client: true, conflictOverride: { include: { approvedBy: { select: { id: true, name: true } } } } },
       });
       if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      return NextResponse.json(normalizeCaseForResponse(c));
+      const out = normalizeCaseForResponse(c);
+      (out as { conflictOverride?: unknown }).conflictOverride = c.conflictOverride;
+      return NextResponse.json(out);
     }
     if (method === 'PUT' || method === 'PATCH') {
       let body: { title?: string; status?: string; stage?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown } = {};
@@ -1126,42 +1210,6 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       return NextResponse.json(normalizeCaseForResponse(c));
     }
     return methodNotAllowed();
-  }
-  if (rest[0] === 'conflict-check' && method === 'POST') {
-    try {
-      const body = await request.json().catch(() => ({}));
-      const clientId = body.clientId ?? null;
-      const excludeCaseId = body.caseId ?? body.excludeCaseId ?? null;
-      const conflicts: { caseId: string; title: string; reason: string }[] = [];
-      if (clientId) {
-        const sameClient = await prisma.case.findMany({
-          where: { clientId, deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
-          select: { id: true, title: true },
-        });
-        sameClient.forEach((c) => conflicts.push({ caseId: c.id, title: c.title, reason: 'same_client' }));
-      }
-      const parties = body.parties as Record<string, string> | undefined;
-      if (parties && typeof parties === 'object') {
-        const partyNames = [parties.plaintiff, parties.defendant, parties.instansi].filter(Boolean) as string[];
-        if (partyNames.length > 0) {
-          const allCases = await prisma.case.findMany({
-            where: { deletedAt: null, parties: { not: Prisma.JsonNull } },
-            select: { id: true, title: true, parties: true },
-          });
-          for (const c of allCases) {
-            if (excludeCaseId && c.id === excludeCaseId) continue;
-            const p = c.parties as Record<string, string> | null;
-            if (!p) continue;
-            const existing = [p.plaintiff, p.defendant, p.instansi].filter(Boolean) as string[];
-            const overlap = partyNames.some((n) => existing.some((e) => e.toLowerCase().includes((n as string).toLowerCase()) || (n as string).toLowerCase().includes(e.toLowerCase())));
-            if (overlap) conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap' });
-          }
-        }
-      }
-      return NextResponse.json({ hasConflict: conflicts.length > 0, conflicts });
-    } catch {
-      return NextResponse.json({ hasConflict: false, conflicts: [] });
-    }
   }
   if (method === 'GET') {
     const { searchParams } = new URL(request.url);
@@ -1676,6 +1724,69 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       const logs = await prisma.documentAuditLog.findMany({ where: { documentId: id }, orderBy: { createdAt: 'desc' }, take: 200 });
       return NextResponse.json({ data: logs });
+    }
+    if (rest[1] === 'signing-request' && method === 'POST') {
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const body = await request.json().catch(() => ({}));
+      const signers = Array.isArray(body.signers) ? body.signers : [];
+      if (signers.length === 0) return NextResponse.json({ error: 'signers array required (email, name)' }, { status: 400 });
+      const existing = await prisma.documentSigningRequest.findFirst({ where: { documentId: id }, include: { signers: true } });
+      if (existing) return NextResponse.json({ error: 'Signing request already exists for this document' }, { status: 400 });
+      const req = await prisma.documentSigningRequest.create({
+        data: {
+          documentId: id,
+          status: 'pending',
+          signers: {
+            create: signers.map((s: { email: string; name?: string }, i: number) => ({
+              email: (s.email ?? '').trim().toLowerCase(),
+              name: (s.name ?? s.email ?? 'Signer').trim(),
+              sortOrder: i,
+            })),
+          },
+        },
+        include: { signers: true },
+      });
+      await prisma.document.update({ where: { id }, data: { esignStatus: 'pending' } }).catch(() => {});
+      return NextResponse.json(req, { status: 201 });
+    }
+    if (rest[1] === 'signing-request' && method === 'GET') {
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const req = await prisma.documentSigningRequest.findFirst({
+        where: { documentId: id },
+        include: { signers: { orderBy: { sortOrder: 'asc' } } },
+      });
+      return NextResponse.json(req ?? { status: 'none', signers: [] });
+    }
+    if (rest[1] === 'signing-request' && rest[2] === 'sign' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const signerId = body.signerId ?? body.signer_id;
+      const signerEmail = (body.signerEmail ?? body.signer_email ?? body.email)?.trim()?.toLowerCase();
+      const signatureData = (body.signatureData ?? body.signature_data) ?? null;
+      const req = await prisma.documentSigningRequest.findFirst({
+        where: { documentId: id },
+        include: { signers: true },
+      });
+      if (!req) return NextResponse.json({ error: 'Signing request not found' }, { status: 404 });
+      if (req.status === 'completed') return NextResponse.json({ error: 'Already completed' }, { status: 400 });
+      let signer = signerId ? req.signers.find((s) => s.id === signerId) : req.signers.find((s) => s.email === signerEmail);
+      if (!signer) return NextResponse.json({ error: 'Signer not found' }, { status: 404 });
+      if (signer.signedAt) return NextResponse.json({ error: 'Already signed' }, { status: 400 });
+      await prisma.documentSigner.update({
+        where: { id: signer.id },
+        data: { signedAt: new Date(), signatureData },
+      });
+      const allSigned = req.signers.every((s) => (s.id === signer!.id ? true : !!s.signedAt));
+      if (allSigned) {
+        await prisma.documentSigningRequest.update({ where: { id: req.id }, data: { status: 'completed' } });
+        await prisma.document.update({ where: { id }, data: { esignStatus: 'completed', esignSignedAt: new Date() } }).catch(() => {});
+      }
+      const updated = await prisma.documentSigningRequest.findFirst({
+        where: { id: req.id },
+        include: { signers: { orderBy: { sortOrder: 'asc' } } },
+      });
+      return NextResponse.json(updated);
     }
     if (rest[1] === 'send-for-signature' && method === 'POST') {
       const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });

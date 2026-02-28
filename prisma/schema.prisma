@@ -161,6 +161,7 @@ model User {
   rateCards            RateCard[]
   caseTeams            CaseTeamMember[]
   caseAccessList       CaseAccess[]
+  conflictOverridesApproved CaseConflictOverride[]
   sessions             Session[]
   caseMessages         CaseMessage[]
   notificationPrefs    UserNotificationPref?
@@ -241,8 +242,22 @@ model Case {
   approvalRequests  ApprovalRequest[]
   milestones        CaseMilestone[]
   events            Event[]
+  conflictOverride CaseConflictOverride?
 
   @@map("cases")
+}
+
+model CaseConflictOverride {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId         String   @unique @map("case_id") @db.Uuid
+  approvedById   String   @map("approved_by_id") @db.Uuid
+  note           String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  case_       Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  approvedBy  User @relation(fields: [approvedById], references: [id], onDelete: Cascade)
+
+  @@map("case_conflict_overrides")
 }
 
 // --- Enterprise: case-level permission (view / edit / billing / documents) ---
@@ -374,10 +389,40 @@ model Document {
 
   case              Case?     @relation(fields: [caseId], references: [id])
   checkedOutByUser  User?     @relation("DocumentCheckedOut", fields: [checkedOutById], references: [id])
+  signingRequests   DocumentSigningRequest[]
 
   auditLogs DocumentAuditLog[]
 
   @@map("documents")
+}
+
+model DocumentSigningRequest {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  status     String   @default("pending") @db.VarChar(32) // pending | completed
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  signers  DocumentSigner[]
+
+  @@map("document_signing_requests")
+}
+
+model DocumentSigner {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId     String    @map("request_id") @db.Uuid
+  userId        String?   @map("user_id") @db.Uuid
+  email         String    @db.VarChar(255)
+  name          String    @db.VarChar(255)
+  sortOrder     Int       @default(0) @map("sort_order") @db.SmallInt
+  signedAt      DateTime? @map("signed_at") @db.Timestamptz(6)
+  signatureData String?   @map("signature_data") @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  request DocumentSigningRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("document_signers")
 }
 
 model DocumentAuditLog {

@@ -172,6 +172,8 @@ export const adminEndpoints = {
   },
   caseDetail: (id: string) => `${ApiPaths.cases}/${id}`,
   caseCreate: () => ApiPaths.cases,
+  caseConflictCheck: () => `${ApiPaths.cases}/conflict-check`,
+  caseConflictOverride: (id: string) => `${ApiPaths.cases}/${id}/conflict-override`,
   caseUpdate: (id: string) => `${ApiPaths.cases}/${id}`,
   caseDelete: (id: string) => `${ApiPaths.cases}/${id}`,
   caseAssignTeam: (id: string) => `${ApiPaths.cases}/${id}/team`,
@@ -223,6 +225,9 @@ export const adminEndpoints = {
   documentAuditLog: (id: string) => `${ApiPaths.documents}/${id}/audit-log`,
   documentGenerateFromTemplate: () => `${ApiPaths.documents}/generate-from-template`,
   documentSendForSignature: (id: string) => `${ApiPaths.documents}/${id}/send-for-signature`,
+  documentSigningRequestCreate: (id: string) => `${ApiPaths.documents}/${id}/signing-request`,
+  documentSigningRequestGet: (id: string) => `${ApiPaths.documents}/${id}/signing-request`,
+  documentSigningRequestSign: (id: string) => `${ApiPaths.documents}/${id}/signing-request/sign`,
   documentBulkUpload: () => `${ApiPaths.documents}/bulk-upload`,
   documentUpload: () => `${ApiPaths.documents}/upload`,
 
