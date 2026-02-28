@@ -251,6 +251,7 @@ export const adminEndpoints = {
   timeEntriesList: () => ApiPaths.timeEntries,
   timeEntriesByCase: (caseId: string) => `${ApiPaths.timeEntries}/case/${caseId}`,
   timeEntryDetail: (id: string) => `${ApiPaths.timeEntries}/${id}`,
+  timeEntryUpdate: (id: string) => `${ApiPaths.timeEntries}/${id}`,
   timeEntryApprove: (id: string) => `${ApiPaths.timeEntries}/${id}/approve`,
 
   // Expenses (M3)
@@ -274,6 +275,7 @@ export const adminEndpoints = {
     return q ? `${ApiPaths.billing}/invoices?${q}` : `${ApiPaths.billing}/invoices`;
   },
   invoiceDetail: (id: string) => `${ApiPaths.billing}/invoices/${id}`,
+  invoiceFromTimeEntries: () => `${ApiPaths.billing}/invoices/from-time-entries`,
   invoiceApprove: (id: string) => `${ApiPaths.billing}/invoices/${id}/approve`,
   invoiceWriteOff: (id: string) => `${ApiPaths.billing}/invoices/${id}/write-off`,
   billingTaxRates: () => `${ApiPaths.billing}/tax-rates`,

@@ -1363,7 +1363,7 @@ async function handleTimeEntries(rest: string[], method: string, request: NextRe
     const list = await prisma.timeEntry.findMany({
       where: { caseId: rest[1], deletedAt: null },
       orderBy: { workDate: 'desc' },
-      include: { user: { select: { id: true, name: true } } },
+      include: { user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
     });
     return NextResponse.json({ data: list });
   }
@@ -1374,8 +1374,30 @@ async function handleTimeEntries(rest: string[], method: string, request: NextRe
     const updated = await prisma.timeEntry.update({
       where: { id },
       data: { approvedAt: new Date() },
+      include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } } },
     });
     return NextResponse.json(updated);
+  }
+  if (id && (method === 'PATCH' || method === 'PUT') && !rest[1]) {
+    const e = await prisma.timeEntry.findFirst({ where: { id, deletedAt: null } });
+    if (!e) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    try {
+      const body = await request.json().catch(() => ({}));
+      const data: { description?: string | null; hours?: number; billable?: boolean; rate?: number | null; workDate?: Date } = {};
+      if (body.description !== undefined) data.description = body.description?.trim() || null;
+      if (body.hours != null) data.hours = Number(body.hours);
+      if (body.billable !== undefined) data.billable = !!body.billable;
+      if (body.rate !== undefined) data.rate = body.rate == null ? null : Number(body.rate);
+      if (body.workDate !== undefined) data.workDate = new Date(body.workDate);
+      const updated = await prisma.timeEntry.update({
+        where: { id },
+        data,
+        include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
+      });
+      return NextResponse.json(updated);
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Invalid request' }, { status: 400 });
+    }
   }
   if (id && method === 'GET') {
     const e = await prisma.timeEntry.findFirst({
@@ -1389,7 +1411,7 @@ async function handleTimeEntries(rest: string[], method: string, request: NextRe
       where: { deletedAt: null },
       orderBy: { workDate: 'desc' },
       take: 500,
-      include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } } },
+      include: { case: { select: { id: true, title: true, clientId: true } }, user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
     });
     return NextResponse.json({ data: list });
   }
@@ -1408,6 +1430,7 @@ async function handleTimeEntries(rest: string[], method: string, request: NextRe
           rate: body.rate != null ? Number(body.rate) : null,
           workDate: body.workDate ? new Date(body.workDate) : new Date(),
         },
+        include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } } },
       });
       return NextResponse.json(e, { status: 201 });
     } catch (e) {
@@ -1844,6 +1867,67 @@ async function handleBilling(rest: string[], method: string, request: NextReques
       return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
     }
   }
+  // POST billing/invoices/from-time-entries — generate invoice from approved time entries
+  if (rest[0] === 'invoices' && rest[1] === 'from-time-entries' && method === 'POST') {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const timeEntryIds = Array.isArray(body.timeEntryIds) ? body.timeEntryIds as string[] : [];
+      if (timeEntryIds.length === 0) return NextResponse.json({ error: 'timeEntryIds array required and non-empty' }, { status: 400 });
+      const entries = await prisma.timeEntry.findMany({
+        where: { id: { in: timeEntryIds }, deletedAt: null, invoiceId: null, approvedAt: { not: null } },
+        include: { case: { select: { id: true, clientId: true } } },
+      });
+      if (entries.length !== timeEntryIds.length) {
+        return NextResponse.json({ error: 'Some entries not found, already invoiced, or not approved' }, { status: 400 });
+      }
+      const clientId = (body.clientId as string) || entries[0].case?.clientId;
+      if (!clientId) return NextResponse.json({ error: 'clientId required (or ensure all entries belong to a case with client)' }, { status: 400 });
+      let total = 0;
+      for (const e of entries) {
+        const rate = e.rate != null ? Number(e.rate) : 0;
+        total += Number(e.hours) * rate;
+      }
+      const auth = await getAuthFromRequest(request, 'admin');
+      const firmId = auth?.firmId ?? null;
+      let invoiceNumber = (body.invoiceNumber as string)?.trim() || null;
+      if (!invoiceNumber && firmId) {
+        try {
+          const year = new Date().getFullYear();
+          const seq = await getNextNumber(firmId, 'invoice', String(year));
+          const prefix = (await prisma.firmConfig.findUnique({ where: { firmId_key: { firmId, key: 'invoice_number_prefix' } } }))?.value as string | null;
+          invoiceNumber = formatInvoiceNumber(prefix ?? null, year, seq);
+        } catch {
+          invoiceNumber = `INV-${Date.now()}`;
+        }
+      }
+      if (!invoiceNumber) invoiceNumber = `INV-${Date.now()}`;
+      const dueDate = body.dueDate ? new Date(body.dueDate) : null;
+      const inv = await prisma.invoice.create({
+        data: {
+          firmId,
+          status: 'draft',
+          amount: total,
+          paidAmount: 0,
+          invoiceNumber,
+          clientId,
+          dueDate,
+          currency: (body.currency as string) ?? 'IDR',
+        },
+      });
+      await prisma.timeEntry.updateMany({
+        where: { id: { in: timeEntryIds } },
+        data: { invoiceId: inv.id },
+      });
+      const created = await prisma.invoice.findUnique({
+        where: { id: inv.id },
+        include: { client: { select: { id: true, name: true } } },
+      });
+      return NextResponse.json(created, { status: 201 });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+    }
+  }
+
   if (rest[0] === 'invoices' && !rest[1] && method === 'POST') {
     try {
       const body = await request.json().catch(() => ({}));

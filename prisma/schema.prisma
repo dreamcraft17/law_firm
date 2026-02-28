@@ -157,6 +157,7 @@ model User {
   clientRef            Client?     @relation(fields: [clientId], references: [id])
   lawyerMetrics        LawyerPerformanceMetric[]
   timeEntries          TimeEntry[]
+  timerSessions        TimerSession[]
   rateCards            RateCard[]
   caseTeams            CaseTeamMember[]
   caseAccessList       CaseAccess[]
@@ -229,6 +230,7 @@ model Case {
   client            Client?   @relation(fields: [clientId], references: [id])
   riskScores        CaseRiskScore[]
   timeEntries       TimeEntry[]
+  timerSessions     TimerSession[]
   expenses          CaseExpense[]
   tasks             Task[]
   documents         Document[]
@@ -294,6 +296,7 @@ model Task {
 
   case                  Case?     @relation(fields: [caseId], references: [id])
   timeEntries           TimeEntry[]
+  timerSessions         TimerSession[]
   dependsOn             TaskDependency[] @relation("TaskDependsOn")
   dependedOnBy          TaskDependency[] @relation("TaskDependedOnBy")
   recurringTemplate     RecurringTaskTemplate? @relation(fields: [recurringTemplateId], references: [id])
@@ -528,9 +531,10 @@ model Invoice {
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  client      Client?        @relation(fields: [clientId], references: [id])
-  expenses    CaseExpense[]
-  creditNotes CreditNote[]
+  client         Client?        @relation(fields: [clientId], references: [id])
+  timeEntries    TimeEntry[]
+  expenses       CaseExpense[]
+  creditNotes    CreditNote[]
   paymentExports PaymentExport[]
 
   @@map("invoices")
@@ -610,6 +614,21 @@ model PaymentExport {
 }
 
 // --- M2: Time Tracking ---
+model TimerSession {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  caseId      String    @map("case_id") @db.Uuid
+  taskId      String?   @map("task_id") @db.Uuid
+  description String?   @db.Text
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@map("timer_sessions")
+}
+
 model TimeEntry {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   caseId     String    @map("case_id") @db.Uuid
@@ -620,14 +639,16 @@ model TimeEntry {
   billable   Boolean   @default(true) @db.Boolean
   rate       Decimal?  @db.Decimal(18, 2)
   approvedAt DateTime? @map("approved_at") @db.Timestamptz(6)
+  invoiceId String?   @map("invoice_id") @db.Uuid
   workDate   DateTime  @map("work_date") @db.Date
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  case Case  @relation(fields: [caseId], references: [id])
-  task Task? @relation(fields: [taskId], references: [id])
-  user User  @relation(fields: [userId], references: [id])
+  case    Case     @relation(fields: [caseId], references: [id])
+  task    Task?    @relation(fields: [taskId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
   @@map("time_entries")
 }

@@ -565,37 +565,211 @@ async function handleMobileLeads(rest: string[], method: string, request: NextRe
   return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
 }
 
-// --- M2: Time entries (mobile: list by case, create) ---
+// --- Resolve hourly rate for user/case (RateCard or RateRule) ---
+async function resolveHourlyRate(userId: string, caseId: string): Promise<number | null> {
+  const today = new Date();
+  const card = await prisma.rateCard.findFirst({
+    where: {
+      userId,
+      effectiveFrom: { lte: today },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }],
+    },
+    orderBy: { effectiveFrom: 'desc' },
+  });
+  if (card) return Number(card.rate);
+  const rule = await prisma.rateRule.findFirst({
+    where: {
+      rateType: 'hourly',
+      effectiveFrom: { lte: today },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }],
+      deletedAt: null,
+      AND: [
+        { OR: [{ caseId }, { caseId: null }] },
+        { OR: [{ userId }, { userId: null }] },
+      ],
+    },
+    orderBy: [{ caseId: 'desc' }, { userId: 'desc' }],
+  });
+  return rule ? Number(rule.rate) : null;
+}
+
+// --- M2: Time entries (mobile: list, timer start/stop, manual entry, approve) ---
 async function handleMobileTimeEntries(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  const auth = await getAuthFromRequest(request, 'mobile');
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Klien tidak boleh akses time entries (hanya tim firma)
+  if (auth.clientId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  const userId = auth.userId;
+
+  // GET /time-entries/timer — current running timer
+  if (rest[0] === 'timer') {
+    if (rest[1] === 'start' && method === 'POST') {
+      try {
+        const body = await request.json().catch(() => ({}));
+        if (!body.caseId) return NextResponse.json({ error: 'caseId required' }, { status: 400 });
+        if (!(await canAccessCase(body.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        const existing = await prisma.timerSession.findFirst({ where: { userId } });
+        if (existing) return NextResponse.json({ error: 'Timer already running. Stop it first.' }, { status: 400 });
+        const session = await prisma.timerSession.create({
+          data: {
+            userId,
+            caseId: body.caseId,
+            taskId: body.taskId ?? null,
+            description: (body.description as string)?.trim() || null,
+          },
+          include: { case: { select: { id: true, title: true } }, task: { select: { id: true, title: true } } },
+        });
+        return NextResponse.json(session, { status: 201 });
+      } catch (e) {
+        return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
+      }
+    }
+    if (rest[1] === 'stop' && method === 'POST') {
+      const session = await prisma.timerSession.findFirst({ where: { userId }, include: { case: true } });
+      if (!session) return NextResponse.json({ error: 'No running timer' }, { status: 404 });
+      const now = new Date();
+      const hours = (now.getTime() - session.startedAt.getTime()) / (1000 * 60 * 60);
+      const roundedHours = Math.round(hours * 100) / 100;
+      let rate: number | null = null;
+      const resolved = await resolveHourlyRate(userId, session.caseId);
+      if (resolved != null) rate = resolved;
+      const entry = await prisma.timeEntry.create({
+        data: {
+          caseId: session.caseId,
+          taskId: session.taskId,
+          userId,
+          description: session.description,
+          hours: roundedHours,
+          billable: true,
+          rate,
+          workDate: new Date(session.startedAt.toISOString().slice(0, 10)),
+        },
+        include: { case: { select: { id: true, title: true } }, task: { select: { id: true, title: true } } },
+      });
+      await prisma.timerSession.delete({ where: { id: session.id } });
+      return NextResponse.json(entry, { status: 201 });
+    }
+    if (method === 'GET') {
+      const session = await prisma.timerSession.findFirst({
+        where: { userId },
+        include: { case: { select: { id: true, title: true } }, task: { select: { id: true, title: true } } },
+      });
+      return NextResponse.json(session ?? null);
+    }
+    return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+
+  // GET /time-entries/case/:caseId
   if (rest[0] === 'case' && rest[1] && method === 'GET') {
+    const caseId = rest[1];
+    if (!(await canAccessCase(caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     const list = await prisma.timeEntry.findMany({
-      where: { caseId: rest[1], deletedAt: null },
+      where: { caseId, deletedAt: null },
       orderBy: { workDate: 'desc' },
-      include: { user: { select: { id: true, name: true } } },
+      include: { user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
     });
     return NextResponse.json({ data: list });
   }
-  if (method === 'POST') {
+
+  const id = rest[0];
+  if (id && id !== 'case' && id !== 'timer') {
+    // POST /time-entries/:id/approve (partner / admin)
+    if (rest[1] === 'approve' && method === 'POST') {
+      const e = await prisma.timeEntry.findFirst({ where: { id, deletedAt: null } });
+      if (!e) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      if (!(await canAccessCase(e.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      const updated = await prisma.timeEntry.update({
+        where: { id },
+        data: { approvedAt: new Date() },
+        include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } } },
+      });
+      return NextResponse.json(updated);
+    }
+    if (method === 'GET') {
+      const e = await prisma.timeEntry.findFirst({
+        where: { id, deletedAt: null },
+        include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
+      });
+      if (!e) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      if (!(await canAccessCase(e.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return NextResponse.json(e);
+    }
+    if ((method === 'PATCH' || method === 'PUT') && !rest[1]) {
+      const e = await prisma.timeEntry.findFirst({ where: { id, deletedAt: null } });
+      if (!e) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      if (e.userId !== userId && !auth.isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      if (!(await canAccessCase(e.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      try {
+        const body = await request.json().catch(() => ({}));
+        const data: { description?: string | null; hours?: number; billable?: boolean; rate?: number | null; workDate?: Date } = {};
+        if (body.description !== undefined) data.description = body.description?.trim() || null;
+        if (body.hours != null) data.hours = Number(body.hours);
+        if (body.billable !== undefined) data.billable = !!body.billable;
+        if (body.rate !== undefined) data.rate = body.rate == null ? null : Number(body.rate);
+        if (body.workDate !== undefined) data.workDate = new Date(body.workDate);
+        const updated = await prisma.timeEntry.update({
+          where: { id },
+          data,
+          include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } } },
+        });
+        return NextResponse.json(updated);
+      } catch (err) {
+        return NextResponse.json({ error: err instanceof Error ? err.message : 'Invalid request' }, { status: 400 });
+      }
+    }
+  }
+
+  // GET /time-entries — list (user's entries or all if admin; optional caseId)
+  if (method === 'GET' && !id) {
+    const { searchParams } = new URL(request.url);
+    const caseId = searchParams.get('caseId');
+    const where: Prisma.TimeEntryWhereInput = { deletedAt: null };
+    if (caseId) {
+      if (!(await canAccessCase(caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      where.caseId = caseId;
+    } else if (!auth.isAdmin) {
+      where.userId = userId;
+    }
+    const list = await prisma.timeEntry.findMany({
+      where,
+      orderBy: { workDate: 'desc' },
+      take: 200,
+      include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
+    });
+    return NextResponse.json({ data: list });
+  }
+
+  // POST /time-entries — manual time entry
+  if (method === 'POST' && !id) {
     try {
       const body = await request.json().catch(() => ({}));
       if (!body.caseId || body.hours == null) return NextResponse.json({ error: 'caseId and hours required' }, { status: 400 });
+      if (!(await canAccessCase(body.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      let rate: number | null = body.rate != null ? Number(body.rate) : null;
+      if (rate == null) {
+        const resolved = await resolveHourlyRate(userId, body.caseId);
+        if (resolved != null) rate = resolved;
+      }
       const e = await prisma.timeEntry.create({
         data: {
           caseId: body.caseId,
           taskId: body.taskId ?? null,
-          userId: body.userId ?? (await prisma.user.findFirst({ where: { deletedAt: null }, select: { id: true } }))?.id!,
-          description: body.description ?? null,
+          userId,
+          description: (body.description as string)?.trim() || null,
           hours: Number(body.hours),
           billable: body.billable !== false,
-          rate: body.rate != null ? Number(body.rate) : null,
+          rate,
           workDate: body.workDate ? new Date(body.workDate) : new Date(),
         },
+        include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
       });
       return NextResponse.json(e, { status: 201 });
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request' }, { status: 400 });
     }
   }
+
   return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
 }
 
