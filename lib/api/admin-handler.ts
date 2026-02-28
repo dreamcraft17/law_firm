@@ -1030,7 +1030,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       return NextResponse.json(out);
     }
     if (method === 'PUT' || method === 'PATCH') {
-      let body: { title?: string; status?: string; stage?: string; caseType?: string | null; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown } = {};
+      let body: { title?: string; status?: string; stage?: string; caseType?: string | null; case_type?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown } = {};
       try {
         body = await request.json();
       } catch {
@@ -1042,7 +1042,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       if (body.title !== undefined) data.title = body.title.trim();
       if (body.status !== undefined) data.status = body.status;
       if (body.stage !== undefined) data.stage = body.stage;
-      if (body.caseType !== undefined) data.caseType = (body.caseType ?? body.case_type)?.trim() || null;
+      if (body.caseType !== undefined || body.case_type !== undefined) data.caseType = (body.caseType ?? body.case_type)?.trim() || null;
       if (body.clientId !== undefined || body.client_name !== undefined) data.clientId = await resolveClientId(body);
       if (body.caseNumber !== undefined || body.case_number !== undefined) data.caseNumber = (body.caseNumber ?? body.case_number)?.trim() || null;
       if (body.description !== undefined) data.description = body.description?.trim() || null;
