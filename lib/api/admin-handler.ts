@@ -2921,7 +2921,7 @@ async function handleSlaRules(rest: string[], method: string, request: NextReque
       const body = await request.json().catch(() => ({}));
       const r = await prisma.slaRule.findFirst({ where: { id } });
       if (!r) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      const data: { caseType?: string; dueDays?: number; reminderDaysBefore?: unknown; escalationNotifyRole?: string | null; isActive?: boolean } = {};
+      const data: { caseType?: string; dueDays?: number; reminderDaysBefore?: Prisma.InputJsonValue; escalationNotifyRole?: string | null; isActive?: boolean } = {};
       if (body.caseType !== undefined) data.caseType = String(body.caseType).trim();
       if (body.dueDays !== undefined) data.dueDays = Number(body.dueDays) || 0;
       if (body.reminderDaysBefore !== undefined) data.reminderDaysBefore = Array.isArray(body.reminderDaysBefore) ? body.reminderDaysBefore : (body.reminderDaysBefore != null ? [Number(body.reminderDaysBefore)] : []);
