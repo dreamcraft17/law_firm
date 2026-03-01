@@ -1022,7 +1022,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       return NextResponse.json(out);
     }
     if (method === 'PUT' || method === 'PATCH') {
-      let body: { title?: string; status?: string; stage?: string; caseType?: string | null; case_type?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown } = {};
+      let body: { title?: string; status?: string; stage?: string; caseType?: string | null; case_type?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown; slaPaused?: boolean; sla_pause?: boolean; slaPausedReason?: string | null; sla_paused_reason?: string | null } = {};
       try {
         body = await request.json();
       } catch {
