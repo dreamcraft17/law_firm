@@ -1895,7 +1895,7 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       if (format === 'pdf') {
         try {
           const pdfBuffer = await generateAuditCertificatePdf(audit);
-          return new NextResponse(pdfBuffer, {
+          return new NextResponse(new Uint8Array(pdfBuffer), {
             headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="signing-certificate-${id}.pdf"` },
           });
         } catch {
