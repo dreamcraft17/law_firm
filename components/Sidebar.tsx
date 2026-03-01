@@ -20,6 +20,8 @@ import {
   Clock,
   Timer,
   Siren,
+  PiggyBank,
+  Globe,
 } from 'lucide-react';
 
 const nav = [
@@ -30,6 +32,8 @@ const nav = [
   { href: '/cases', label: 'Case Management', icon: Briefcase },
   { href: '/sla-rules', label: 'SLA & Deadline', icon: Timer },
   { href: '/escalations', label: 'Escalation', icon: Siren },
+  { href: '/budget', label: 'Matter Budget', icon: PiggyBank },
+  { href: '/client-portal', label: 'Client Portal', icon: Globe },
   { href: '/tasks', label: 'Task Workflow', icon: ListTodo },
   { href: '/time-entries', label: 'Time Tracking', icon: Clock },
   { href: '/documents', label: 'Dokumen', icon: FolderOpen },

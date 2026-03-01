@@ -1209,6 +1209,50 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
     return methodNotAllowed();
   }
   
+  // Handle /cases/{id}/budget
+  if (id && rest[1] === 'budget' && method === 'GET') {
+    const allowed = await canAccessCase(id, auth);
+    if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const c = await prisma.case.findFirst({ where: { id, deletedAt: null }, select: { budgetAmount: true } });
+    if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const timeEntries = await prisma.timeEntry.findMany({
+      where: { caseId: id, deletedAt: null, billable: true },
+      select: { hours: true, rate: true },
+    });
+    const expAgg = await prisma.caseExpense.aggregate({ where: { caseId: id }, _sum: { amount: true } });
+    const timeCost = timeEntries.reduce((acc, e) => acc + Number(e.hours) * Number(e.rate ?? 0), 0);
+    const expCost = Number(expAgg._sum.amount ?? 0);
+    const budgetUsed = timeCost + expCost;
+    const budgetAmount = c.budgetAmount ? Number(c.budgetAmount) : null;
+    const budgetPct = budgetAmount && budgetAmount > 0 ? Math.round((budgetUsed / budgetAmount) * 100) : null;
+    return NextResponse.json({
+      budgetAmount,
+      budgetUsed: Math.round(budgetUsed),
+      budgetPct,
+      isOverAlert: budgetPct != null && budgetPct >= 80,
+      alertThreshold: 80,
+      breakdown: { timeCost: Math.round(timeCost), expCost: Math.round(expCost) },
+    });
+  }
+
+  // Handle /cases/{id}/archive
+  if (id && rest[1] === 'archive' && method === 'GET') {
+    const allowed = await canAccessCase(id, auth);
+    if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const c = await prisma.case.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true, title: true, caseNumber: true, status: true, stage: true, createdAt: true,
+        client: { select: { name: true } },
+        documents: { where: { deletedAt: null }, select: { id: true, name: true, fileUrl: true, folder: true, version: true, createdAt: true } },
+        milestones: { select: { id: true, name: true, dueDate: true, completedAt: true } },
+        teamMembers: { select: { role: true, user: { select: { name: true, email: true } } } },
+      },
+    });
+    if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ exportedAt: new Date().toISOString(), case: c, documentCount: c.documents.length });
+  }
+
   // Handle /cases/{id}/milestones
   if (id && rest[1] === 'milestones') {
     const allowed = await canAccessCase(id, auth);

@@ -1022,7 +1022,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       return NextResponse.json(out);
     }
     if (method === 'PUT' || method === 'PATCH') {
-      let body: { title?: string; status?: string; stage?: string; caseType?: string | null; case_type?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown; slaPaused?: boolean; sla_pause?: boolean; slaPausedReason?: string | null; sla_paused_reason?: string | null } = {};
+      let body: { title?: string; status?: string; stage?: string; caseType?: string | null; case_type?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown; slaPaused?: boolean; sla_pause?: boolean; slaPausedReason?: string | null; sla_paused_reason?: string | null; budgetAmount?: number | null } = {};
       try {
         body = await request.json();
       } catch {
@@ -1030,7 +1030,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       }
       const existing = await prisma.case.findFirst({ where: { id, deletedAt: null } });
       if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      const data: { title?: string; status?: string; stage?: string; caseType?: string | null; clientId?: string | null; caseNumber?: string | null; description?: string | null; parties?: unknown; slaPaused?: boolean; slaPausedReason?: string | null } = {};
+      const data: { title?: string; status?: string; stage?: string; caseType?: string | null; clientId?: string | null; caseNumber?: string | null; description?: string | null; parties?: unknown; slaPaused?: boolean; slaPausedReason?: string | null; budgetAmount?: number | null } = {};
       if (body.title !== undefined) data.title = body.title.trim();
       if (body.status !== undefined) data.status = body.status;
       if (body.stage !== undefined) data.stage = body.stage;
@@ -1041,6 +1041,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       if (body.parties !== undefined) data.parties = body.parties;
       if (body.slaPaused !== undefined || body.sla_pause !== undefined) data.slaPaused = Boolean(body.slaPaused ?? body.sla_pause);
       if (body.slaPausedReason !== undefined || body.sla_paused_reason !== undefined) data.slaPausedReason = (body.slaPausedReason ?? body.sla_paused_reason)?.trim() || null;
+      if (body.budgetAmount !== undefined) data.budgetAmount = body.budgetAmount != null ? Number(body.budgetAmount) : null;
       const updateData: Prisma.CaseUpdateInput = {};
       if (data.title !== undefined) updateData.title = data.title;
       if (data.status !== undefined) updateData.status = data.status;
@@ -1061,6 +1062,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         updateData.slaPausedAt = null;
         updateData.slaPausedReason = null;
       }
+      if (data.budgetAmount !== undefined) updateData.budgetAmount = data.budgetAmount;
       if (data.caseType !== undefined && data.caseType) {
         const sla = await getSlaDueFromRule(existing.firmId, data.caseType, existing.createdAt, existing.stageChangedAt, existing.stage);
         if (sla) updateData.slaDueDate = sla.slaDueDate;
@@ -1081,6 +1083,62 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       await prisma.auditLog.create({ data: { action: 'delete', entity: 'case', entityId: id, details: { title: existing.title } } }).catch(() => {});
       return NextResponse.json({ message: 'OK' });
     }
+    if (rest[1] === 'budget' && method === 'GET') {
+      const c = await prisma.case.findFirst({ where: { id, deletedAt: null }, select: { id: true, budgetAmount: true } });
+      if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const [teAgg, expAgg] = await Promise.all([
+        prisma.timeEntry.aggregate({
+          where: { caseId: id, deletedAt: null, billable: true },
+          _sum: { hours: true },
+        }),
+        prisma.caseExpense.aggregate({
+          where: { caseId: id },
+          _sum: { amount: true },
+        }),
+      ]);
+      // Compute time cost: SUM(hours * rate) per entry
+      const timeEntries = await prisma.timeEntry.findMany({
+        where: { caseId: id, deletedAt: null, billable: true },
+        select: { hours: true, rate: true },
+      });
+      const timeCost = timeEntries.reduce((acc, e) => acc + Number(e.hours) * Number(e.rate ?? 0), 0);
+      const expCost = Number(expAgg._sum.amount ?? 0);
+      const budgetUsed = timeCost + expCost;
+      const budgetAmount = c.budgetAmount ? Number(c.budgetAmount) : null;
+      const budgetPct = budgetAmount && budgetAmount > 0 ? Math.round((budgetUsed / budgetAmount) * 100) : null;
+      const ALERT_THRESHOLD = 80;
+      return NextResponse.json({
+        budgetAmount,
+        budgetUsed: Math.round(budgetUsed),
+        budgetPct,
+        isOverAlert: budgetPct != null && budgetPct >= ALERT_THRESHOLD,
+        alertThreshold: ALERT_THRESHOLD,
+        breakdown: { timeCost: Math.round(timeCost), expCost: Math.round(expCost) },
+      });
+    }
+
+    if (rest[1] === 'archive' && method === 'GET') {
+      const c = await prisma.case.findFirst({
+        where: { id, deletedAt: null },
+        select: {
+          id: true, title: true, caseNumber: true, status: true, stage: true, createdAt: true,
+          client: { select: { name: true } },
+          documents: { where: { deletedAt: null }, select: { id: true, name: true, fileUrl: true, folder: true, version: true, createdAt: true } },
+          milestones: { select: { id: true, name: true, dueDate: true, completedAt: true } },
+          teamMembers: { select: { role: true, user: { select: { name: true, email: true } } } },
+          timeEntries: { where: { deletedAt: null }, select: { description: true, hours: true, rate: true, workDate: true, user: { select: { name: true } } } },
+        },
+      });
+      if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      return NextResponse.json({
+        exportedAt: new Date().toISOString(),
+        case: c,
+        documentCount: c.documents.length,
+        milestoneCount: c.milestones.length,
+        teamCount: c.teamMembers.length,
+      });
+    }
+
     if (rest[1] === 'team') {
       const caseExists = await prisma.case.findFirst({ where: { id, deletedAt: null } });
       if (!caseExists) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -2061,6 +2119,7 @@ async function handleBilling(rest: string[], method: string, request: NextReques
       const data: {
         status?: string; paidAmount?: unknown; invoiceNumber?: string; clientId?: string | null; dueDate?: Date | null;
         writeOffAmount?: number; writeOffReason?: string | null; taxRate?: number | null; currency?: string; retainerDrawdownAmount?: number;
+        paymentUrl?: string | null;
       } = {};
       if (body.status !== undefined) data.status = body.status;
       if (body.paidAmount !== undefined) data.paidAmount = body.paidAmount;
@@ -2072,6 +2131,7 @@ async function handleBilling(rest: string[], method: string, request: NextReques
       if (body.taxRate !== undefined) data.taxRate = body.taxRate != null ? Number(body.taxRate) : null;
       if (body.currency !== undefined) data.currency = body.currency ?? 'IDR';
       if (body.retainerDrawdownAmount !== undefined) data.retainerDrawdownAmount = Number(body.retainerDrawdownAmount);
+      if (body.paymentUrl !== undefined) data.paymentUrl = body.paymentUrl?.trim() || null;
       const updateData: Prisma.InvoiceUpdateInput = {};
       if (data.status !== undefined) updateData.status = data.status;
       if (data.paidAmount !== undefined) updateData.paidAmount = data.paidAmount as number;
@@ -2084,6 +2144,7 @@ async function handleBilling(rest: string[], method: string, request: NextReques
       if (data.taxRate !== undefined) updateData.taxRate = data.taxRate;
       if (data.currency !== undefined) updateData.currency = data.currency;
       if (data.retainerDrawdownAmount !== undefined) updateData.retainerDrawdownAmount = data.retainerDrawdownAmount;
+      if (data.paymentUrl !== undefined) updateData.paymentUrl = data.paymentUrl;
       const updated = await prisma.invoice.update({ where: { id: rest[1] }, data: updateData });
       const total = Number(updated.amount);
       const paid = Number(updated.paidAmount);
