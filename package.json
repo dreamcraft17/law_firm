@@ -11,6 +11,7 @@
     "db:migrate": "node scripts/run-web-migration.js",
     "db:migrate:prisma": "node scripts/run-prisma-migrate.js",
     "db:add-case-fields": "node scripts/add-case-fields.js",
+    "db:add-governance-fields": "node scripts/add-governance-fields.js",
     "db:seed-rbac": "npx ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed-rbac.ts",
     "postinstall": "prisma generate",
     "test": "vitest run",
