@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { adminFetch } from '@/lib/api-client';
-import { TrendingUp, TrendingDown, DollarSign, AlertTriangle, RefreshCw, ChevronRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Briefcase, AlertTriangle, RefreshCw, ChevronRight } from 'lucide-react';
 
 type BudgetCase = {
   id: string;
@@ -124,7 +124,7 @@ export default function BudgetPage() {
       {/* KPI Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'Total Perkara', value: cases.length, icon: DollarSign, color: 'text-blue-600 bg-blue-50 border-blue-200' },
+          { label: 'Total Perkara', value: cases.length, icon: Briefcase, color: 'text-blue-600 bg-blue-50 border-blue-200' },
           { label: 'Punya Budget', value: withBudget.length, icon: TrendingUp, color: 'text-green-600 bg-green-50 border-green-200' },
           { label: 'Over Alert (≥80%)', value: overBudget.length, icon: AlertTriangle, color: 'text-amber-600 bg-amber-50 border-amber-200' },
           { label: 'Tanpa Budget', value: noBudget.length, icon: TrendingDown, color: 'text-gray-600 bg-gray-50 border-gray-200' },
