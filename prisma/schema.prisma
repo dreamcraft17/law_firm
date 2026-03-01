@@ -232,6 +232,9 @@ model Case {
   slaPausedAt      DateTime? @map("sla_paused_at") @db.Timestamptz(6)
   slaPausedReason  String?   @map("sla_paused_reason") @db.VarChar(255)
   budgetAmount     Decimal?  @map("budget_amount") @db.Decimal(18, 2)
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz(6)
+  archivedBy       String?   @map("archived_by") @db.Uuid
+  archivedReason   String?   @map("archived_reason") @db.VarChar(500)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -829,9 +832,30 @@ model CronRunLog {
   success       Boolean
   remindersSent Int      @default(0) @map("reminders_sent") @db.SmallInt
   escalations   Int      @default(0) @db.SmallInt
+  durationMs    Int?     @map("duration_ms") @db.Integer
+  details       Json?    @db.JsonB
   errorMsg      String?  @map("error_msg") @db.Text
 
   @@map("cron_run_logs")
+}
+
+model DeleteRequest {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firmId      String?   @map("firm_id") @db.Uuid
+  entityType  String    @map("entity_type") @db.VarChar(32) // case | document | user
+  entityId    String    @map("entity_id") @db.Uuid
+  entityTitle String?   @map("entity_title") @db.VarChar(500)
+  reason      String?   @db.Text
+  status      String    @default("pending") @db.VarChar(16) // pending | approved | rejected
+  requestedBy String    @map("requested_by") @db.Uuid
+  requestedAt DateTime  @default(now()) @map("requested_at") @db.Timestamptz(6)
+  reviewedBy  String?   @map("reviewed_by") @db.Uuid
+  reviewedAt  DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  reviewNote  String?   @map("review_note") @db.VarChar(500)
+  executedAt  DateTime? @map("executed_at") @db.Timestamptz(6)
+
+  @@index([status])
+  @@map("delete_requests")
 }
 
 // --- Web-only tables ---

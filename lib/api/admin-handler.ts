@@ -63,6 +63,8 @@ function getRequiredPermission(group: string, method: string, rest: string[]): s
     export: 'audit.view',
     'sla-rules': method === 'GET' ? 'cases.view' : 'settings.update',
     escalations: method === 'GET' ? 'cases.view' : 'cases.update',
+    'data-governance': method === 'GET' ? 'settings.view' : 'settings.update',
+    observability: 'settings.view',
   };
   return map[group] ?? null;
 }
@@ -161,6 +163,10 @@ export async function handleAdmin(
         return handleSlaRules(rest, method, request);
       case 'escalations':
         return handleEscalations(rest, method, request, auth);
+      case 'data-governance':
+        return handleDataGovernance(rest, method, request, auth);
+      case 'observability':
+        return handleObservability(rest, method, request);
       default:
         return NextResponse.json(
           { error: 'Not found', path: pathSegments.join('/') },
@@ -3236,4 +3242,316 @@ async function handleEscalations(rest: string[], method: string, request: NextRe
 
 function methodNotAllowed() {
   return NextResponse.json({ error: 'Method not allowed' }, { status: 405 });
+}
+
+// ── Data Governance ───────────────────────────────────────────────────────────
+async function handleDataGovernance(rest: string[], method: string, request: NextRequest, auth: AuthUser): Promise<NextResponse> {
+  // GET /data-governance/retention — list retention policies
+  if (rest[0] === 'retention' && method === 'GET' && !rest[1]) {
+    const list = await prisma.retentionPolicy.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    return NextResponse.json({ data: list });
+  }
+
+  // POST /data-governance/retention — create policy
+  if (rest[0] === 'retention' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const created = await prisma.retentionPolicy.create({
+      data: {
+        firmId: auth.firmId ?? undefined,
+        name: (body.name as string) ?? 'Policy',
+        documentType: body.documentType ?? null,
+        caseStatus: body.caseStatus ?? null,
+        retainYears: Number(body.retainYears ?? 7),
+        actionAfter: (body.actionAfter as string) ?? 'archive',
+        isActive: body.isActive !== false,
+      },
+    });
+    return NextResponse.json(created, { status: 201 });
+  }
+
+  // PATCH /data-governance/retention/:id
+  if (rest[0] === 'retention' && rest[1] && method === 'PATCH') {
+    const body = await request.json().catch(() => ({}));
+    const updated = await prisma.retentionPolicy.update({
+      where: { id: rest[1] },
+      data: {
+        ...(body.name !== undefined && { name: body.name }),
+        ...(body.retainYears !== undefined && { retainYears: Number(body.retainYears) }),
+        ...(body.actionAfter !== undefined && { actionAfter: body.actionAfter }),
+        ...(body.isActive !== undefined && { isActive: body.isActive }),
+      },
+    });
+    return NextResponse.json(updated);
+  }
+
+  // DELETE /data-governance/retention/:id — soft delete
+  if (rest[0] === 'retention' && rest[1] && method === 'DELETE') {
+    await prisma.retentionPolicy.update({ where: { id: rest[1] }, data: { deletedAt: new Date() } });
+    return NextResponse.json({ ok: true });
+  }
+
+  // GET /data-governance/archived-cases
+  if (rest[0] === 'archived-cases' && method === 'GET') {
+    const list = await prisma.case.findMany({
+      where: { deletedAt: null, archivedAt: { not: null } },
+      include: { client: { select: { id: true, name: true } } },
+      orderBy: { archivedAt: 'desc' },
+      take: 200,
+    });
+    return NextResponse.json({ data: list });
+  }
+
+  // POST /data-governance/archive-case/:caseId
+  if (rest[0] === 'archive-case' && rest[1] && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const caseId = rest[1];
+    const existing = await prisma.case.findFirst({ where: { id: caseId, deletedAt: null } });
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (existing.archivedAt) return NextResponse.json({ error: 'Already archived' }, { status: 409 });
+    const updated = await prisma.case.update({
+      where: { id: caseId },
+      data: {
+        archivedAt: new Date(),
+        archivedBy: auth.userId,
+        archivedReason: body.reason ?? null,
+        status: 'closed',
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        userId: auth.userId, action: 'case.archived', entityType: 'case', entityId: caseId,
+        details: { reason: body.reason ?? null },
+      },
+    }).catch(() => {});
+    return NextResponse.json(updated);
+  }
+
+  // POST /data-governance/restore-case/:caseId
+  if (rest[0] === 'restore-case' && rest[1] && method === 'POST') {
+    const caseId = rest[1];
+    const existing = await prisma.case.findFirst({ where: { id: caseId, deletedAt: null } });
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const updated = await prisma.case.update({
+      where: { id: caseId },
+      data: { archivedAt: null, archivedBy: null, archivedReason: null },
+    });
+    await prisma.auditLog.create({
+      data: { userId: auth.userId, action: 'case.restored', entityType: 'case', entityId: caseId },
+    }).catch(() => {});
+    return NextResponse.json(updated);
+  }
+
+  // GET /data-governance/delete-requests
+  if (rest[0] === 'delete-requests' && method === 'GET' && !rest[1]) {
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status') ?? undefined;
+    const list = await prisma.deleteRequest.findMany({
+      where: { ...(status ? { status } : {}) },
+      orderBy: { requestedAt: 'desc' },
+      take: 200,
+    });
+    return NextResponse.json({ data: list });
+  }
+
+  // POST /data-governance/delete-requests — submit hard delete request
+  if (rest[0] === 'delete-requests' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const entityType = (body.entityType as string)?.trim();
+    const entityId = (body.entityId as string)?.trim();
+    if (!entityType || !entityId) return NextResponse.json({ error: 'entityType and entityId required' }, { status: 400 });
+
+    // Resolve entity title for display
+    let entityTitle: string | null = null;
+    if (entityType === 'case') {
+      const c = await prisma.case.findFirst({ where: { id: entityId } });
+      entityTitle = c?.title ?? null;
+    } else if (entityType === 'document') {
+      const d = await prisma.document.findFirst({ where: { id: entityId } });
+      entityTitle = d?.name ?? null;
+    }
+
+    const req = await prisma.deleteRequest.create({
+      data: {
+        firmId: auth.firmId ?? undefined,
+        entityType,
+        entityId,
+        entityTitle,
+        reason: body.reason ?? null,
+        requestedBy: auth.userId,
+      },
+    });
+    return NextResponse.json(req, { status: 201 });
+  }
+
+  // POST /data-governance/delete-requests/:id/approve
+  if (rest[0] === 'delete-requests' && rest[1] && rest[2] === 'approve' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const dr = await prisma.deleteRequest.findFirst({ where: { id: rest[1] } });
+    if (!dr) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (dr.status !== 'pending') return NextResponse.json({ error: 'Already reviewed' }, { status: 409 });
+
+    // Execute hard delete
+    let deleteError: string | null = null;
+    try {
+      if (dr.entityType === 'case') {
+        await prisma.case.update({ where: { id: dr.entityId }, data: { deletedAt: new Date() } });
+      } else if (dr.entityType === 'document') {
+        await prisma.document.update({ where: { id: dr.entityId }, data: { deletedAt: new Date() } });
+      }
+    } catch (e) {
+      deleteError = e instanceof Error ? e.message : 'Delete failed';
+    }
+
+    const updated = await prisma.deleteRequest.update({
+      where: { id: rest[1] },
+      data: {
+        status: deleteError ? 'pending' : 'approved',
+        reviewedBy: auth.userId,
+        reviewedAt: new Date(),
+        reviewNote: body.note ?? null,
+        executedAt: deleteError ? null : new Date(),
+      },
+    });
+
+    if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
+
+    await prisma.auditLog.create({
+      data: { userId: auth.userId, action: `${dr.entityType}.hard_deleted`, entityType: dr.entityType, entityId: dr.entityId },
+    }).catch(() => {});
+    return NextResponse.json(updated);
+  }
+
+  // POST /data-governance/delete-requests/:id/reject
+  if (rest[0] === 'delete-requests' && rest[1] && rest[2] === 'reject' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const dr = await prisma.deleteRequest.findFirst({ where: { id: rest[1] } });
+    if (!dr) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (dr.status !== 'pending') return NextResponse.json({ error: 'Already reviewed' }, { status: 409 });
+    const updated = await prisma.deleteRequest.update({
+      where: { id: rest[1] },
+      data: { status: 'rejected', reviewedBy: auth.userId, reviewedAt: new Date(), reviewNote: body.note ?? null },
+    });
+    return NextResponse.json(updated);
+  }
+
+  // POST /data-governance/backup-test — health check / backup readiness test
+  if (rest[0] === 'backup-test' && method === 'POST') {
+    const startMs = Date.now();
+    try {
+      const [caseCount, docCount, userCount] = await Promise.all([
+        prisma.case.count({ where: { deletedAt: null } }),
+        prisma.document.count({ where: { deletedAt: null } }),
+        prisma.user.count({ where: { deletedAt: null } }),
+      ]);
+      const durationMs = Date.now() - startMs;
+      const result = {
+        ok: true,
+        testedAt: new Date().toISOString(),
+        durationMs,
+        dbConnected: true,
+        counts: { cases: caseCount, documents: docCount, users: userCount },
+      };
+      await prisma.auditLog.create({
+        data: { userId: auth.userId, action: 'backup.test_run', entityType: 'system', entityId: 'backup', details: result },
+      }).catch(() => {});
+      return NextResponse.json(result);
+    } catch (e) {
+      return NextResponse.json({ ok: false, error: String(e), durationMs: Date.now() - startMs }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json({ error: 'Not found' }, { status: 404 });
+}
+
+// ── Observability ─────────────────────────────────────────────────────────────
+async function handleObservability(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
+  // GET /observability/job-logs
+  if (rest[0] === 'job-logs' && method === 'GET') {
+    const { searchParams } = new URL(request.url);
+    const cronName = searchParams.get('cronName') ?? undefined;
+    const onlyFailed = searchParams.get('failed') === 'true';
+    const list = await prisma.cronRunLog.findMany({
+      where: {
+        ...(cronName ? { cronName } : {}),
+        ...(onlyFailed ? { success: false } : {}),
+      },
+      orderBy: { runAt: 'desc' },
+      take: 200,
+    });
+    return NextResponse.json({ data: list });
+  }
+
+  // POST /observability/retry-job/:cronName
+  if (rest[0] === 'retry-job' && rest[1] && method === 'POST') {
+    const cronName = rest[1];
+    const allowedJobs = ['sla'];
+    if (!allowedJobs.includes(cronName)) {
+      return NextResponse.json({ error: `Unknown job: ${cronName}` }, { status: 400 });
+    }
+    // Trigger internal fetch of the cron route
+    try {
+      const baseUrl = process.env.NEXTAUTH_URL ?? process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : 'http://localhost:3000';
+      const secret = process.env.CRON_SECRET ?? '';
+      const res = await fetch(`${baseUrl}/api/cron/${cronName}`, {
+        headers: { authorization: `Bearer ${secret}` },
+      });
+      const json = await res.json();
+      return NextResponse.json({ triggered: true, result: json });
+    } catch (e) {
+      return NextResponse.json({ error: String(e) }, { status: 500 });
+    }
+  }
+
+  // GET /observability/health
+  if (rest[0] === 'health' && method === 'GET') {
+    const startMs = Date.now();
+    const checks: Record<string, unknown> = {};
+
+    // DB ping
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      checks.database = { status: 'ok', latencyMs: Date.now() - startMs };
+    } catch (e) {
+      checks.database = { status: 'error', error: String(e) };
+    }
+
+    // Last cron runs
+    const lastRuns = await prisma.cronRunLog.findMany({
+      orderBy: { runAt: 'desc' },
+      take: 5,
+      select: { cronName: true, runAt: true, success: true, errorMsg: true },
+    }).catch(() => []);
+    checks.lastCronRuns = lastRuns;
+
+    // Counts
+    const [cases, docs, invoices, users] = await Promise.all([
+      prisma.case.count({ where: { deletedAt: null } }),
+      prisma.document.count({ where: { deletedAt: null } }),
+      prisma.invoice.count({ where: { deletedAt: null } }),
+      prisma.user.count({ where: { deletedAt: null } }),
+    ]).catch(() => [0, 0, 0, 0]);
+    checks.entityCounts = { cases, documents: docs, invoices, users };
+
+    // Pending delete requests
+    const pendingDeletes = await prisma.deleteRequest.count({ where: { status: 'pending' } }).catch(() => 0);
+    checks.pendingDeleteRequests = pendingDeletes;
+
+    // Archived cases
+    const archivedCases = await prisma.case.count({ where: { deletedAt: null, archivedAt: { not: null } } }).catch(() => 0);
+    checks.archivedCases = archivedCases;
+
+    return NextResponse.json({
+      ok: checks.database && (checks.database as { status: string }).status === 'ok',
+      checkedAt: new Date().toISOString(),
+      totalMs: Date.now() - startMs,
+      checks,
+    });
+  }
+
+  return NextResponse.json({ error: 'Not found' }, { status: 404 });
 }

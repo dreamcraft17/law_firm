@@ -22,6 +22,8 @@ import {
   Siren,
   PiggyBank,
   Globe,
+  DatabaseZap,
+  Activity,
 } from 'lucide-react';
 
 const nav = [
@@ -41,6 +43,8 @@ const nav = [
   { href: '/events', label: 'Kalender & Event', icon: Calendar },
   { href: '/reports', label: 'Reporting', icon: BarChart3 },
   { href: '/audit', label: 'Audit', icon: FileCheck },
+  { href: '/data-governance', label: 'Data Governance', icon: DatabaseZap },
+  { href: '/observability', label: 'Observability', icon: Activity },
   { href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
   { href: '/settings', label: 'Pengaturan', icon: Settings },
 ];
