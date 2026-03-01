@@ -3455,7 +3455,7 @@ async function handleDataGovernance(rest: string[], method: string, request: Nex
         counts: { cases: caseCount, documents: docCount, users: userCount },
       };
       await prisma.auditLog.create({
-        data: { userId: auth.userId, action: 'backup.test_run', entity: 'system', entityId: 'backup', details: result },
+        data: { userId: auth.userId, action: 'backup.test_run', entity: 'system', details: result },
       }).catch(() => {});
       return NextResponse.json(result);
     } catch (e) {
