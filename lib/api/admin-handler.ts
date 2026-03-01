@@ -1264,6 +1264,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       case_number?: string;
       description?: string | null;
       parties?: unknown;
+      partyNames?: string[];
     } = { title: '' };
     try {
       body = await request.json();
