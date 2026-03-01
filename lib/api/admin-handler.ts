@@ -2548,7 +2548,7 @@ async function handleReports(rest: string[], method: string, request: NextReques
     const firmId = auth.firmId ?? q.get('firmId') ?? null;
     const from = q.get('from');
     const to = q.get('to');
-    const escalatedFilter: Prisma.DateTimeFilter = { not: null } as Prisma.DateTimeFilter;
+    const escalatedFilter: Prisma.DateTimeNullableFilter = { not: null };
     if (from) escalatedFilter.gte = new Date(from);
     if (to) escalatedFilter.lte = new Date(to);
     const where: Prisma.CaseWhereInput = { deletedAt: null, escalatedAt: escalatedFilter };
