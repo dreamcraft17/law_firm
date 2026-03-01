@@ -47,9 +47,9 @@ async function runSlaCron(): Promise<NextResponse> {
   const escalations: string[] = [];
 
   try {
-    // --- Reminders: cases with slaDueDate in future, reminder day = today
+    // --- Reminders: cases with slaDueDate in future, reminder day = today (skip SLA-paused)
     const casesWithSla = await prisma.case.findMany({
-      where: { deletedAt: null, slaDueDate: { not: null } },
+      where: { deletedAt: null, slaDueDate: { not: null }, slaPausedAt: null },
       include: {
         teamMembers: { select: { userId: true } },
       },
@@ -101,12 +101,13 @@ async function runSlaCron(): Promise<NextResponse> {
       }
     }
 
-    // --- Escalation: slaDueDate < now and escalatedAt is null
+    // --- Escalation: slaDueDate < now, escalatedAt is null, and not SLA-paused
     const toEscalate = await prisma.case.findMany({
       where: {
         deletedAt: null,
         slaDueDate: { lt: now },
         escalatedAt: null,
+        slaPausedAt: null,
       },
       include: { teamMembers: { select: { userId: true } } },
     });

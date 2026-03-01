@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { adminFetch } from '@/lib/api-client';
-import { adminEndpoints } from '@/lib/api-paths';
+import { adminEndpoints, apiBaseUrl } from '@/lib/api-paths';
 import { Filter, Lock, History } from 'lucide-react';
 
 type DocumentItem = {
@@ -45,9 +45,13 @@ export default function DocumentsPage() {
   const [signingRequest, setSigningRequest] = useState<{
     id?: string;
     status: string;
+    expiryAt?: string | null;
+    cancelledAt?: string | null;
     signers?: { id: string; email: string; name: string; signedAt?: string | null }[];
   } | null>(null);
   const [signingRequestSaving, setSigningRequestSaving] = useState(false);
+  const [signingCancelSaving, setSigningCancelSaving] = useState(false);
+  const [signingExpiryAt, setSigningExpiryAt] = useState('');
   const [newSigners, setNewSigners] = useState<{ email: string; name: string }[]>([{ email: '', name: '' }]);
 
   const load = useCallback(async () => {
@@ -158,7 +162,13 @@ export default function DocumentsPage() {
     }
     if (signRes.ok) {
       const j = await signRes.json();
-      if (j.id || j.status) setSigningRequest({ id: j.id, status: j.status ?? 'none', signers: j.signers ?? [] });
+      if (j.id || j.status) setSigningRequest({
+        id: j.id,
+        status: j.status ?? 'none',
+        expiryAt: j.expiryAt ?? null,
+        cancelledAt: j.cancelledAt ?? null,
+        signers: j.signers ?? [],
+      });
       else setSigningRequest(null);
     }
   };
@@ -173,23 +183,63 @@ export default function DocumentsPage() {
     setSigningRequestSaving(true);
     setError(null);
     try {
+      const body: { signers: { email: string; name: string }[]; expiryAt?: string } = {
+        signers: signers.map((s) => ({ email: s.email.trim(), name: (s.name || s.email).trim() })),
+      };
+      if (signingExpiryAt.trim()) {
+        const d = new Date(signingExpiryAt.trim());
+        if (!isNaN(d.getTime())) body.expiryAt = d.toISOString();
+      }
       const res = await adminFetch(adminEndpoints.documentSigningRequestCreate(detailDoc.id), {
         method: 'POST',
-        body: JSON.stringify({
-          signers: signers.map((s) => ({ email: s.email.trim(), name: (s.name || s.email).trim() })),
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || res.statusText);
       }
       const data = await res.json();
-      setSigningRequest({ id: data.id, status: data.status ?? 'pending', signers: data.signers ?? [] });
+      setSigningRequest({
+        id: data.id,
+        status: data.status ?? 'pending',
+        expiryAt: data.expiryAt ?? null,
+        cancelledAt: data.cancelledAt ?? null,
+        signers: data.signers ?? [],
+      });
       setNewSigners([{ email: '', name: '' }]);
+      setSigningExpiryAt('');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Gagal buat permintaan tanda tangan');
     } finally {
       setSigningRequestSaving(false);
+    }
+  };
+
+  const handleCancelSigningRequest = async () => {
+    if (!detailDoc?.id || !signingRequest?.id) return;
+    if (!confirm('Batalkan permintaan tanda tangan? Dokumen akan dapat diubah lagi.')) return;
+    setSigningCancelSaving(true);
+    setError(null);
+    try {
+      const res = await adminFetch(adminEndpoints.documentSigningRequestCancel(detailDoc.id), { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || res.statusText);
+      }
+      const data = await res.json();
+      setSigningRequest({
+        id: data.id,
+        status: data.status ?? 'cancelled',
+        expiryAt: data.expiryAt ?? null,
+        cancelledAt: data.cancelledAt ?? null,
+        signers: data.signers ?? [],
+      });
+      if (detailDoc) setDetailDoc((prev) => (prev ? { ...prev, esignStatus: null } : null));
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Gagal batalkan permintaan');
+    } finally {
+      setSigningCancelSaving(false);
     }
   };
 
@@ -511,6 +561,12 @@ export default function DocumentsPage() {
                 {signingRequest?.id ? (
                   <div className="space-y-2">
                     <p className="text-xs text-gray-600">Status: <span className="font-medium">{signingRequest.status}</span></p>
+                    {signingRequest.expiryAt && (
+                      <p className="text-xs text-gray-600">Batas waktu: {new Date(signingRequest.expiryAt).toLocaleString('id-ID')}</p>
+                    )}
+                    {signingRequest.cancelledAt && (
+                      <p className="text-xs text-red-600">Dibatalkan: {new Date(signingRequest.cancelledAt).toLocaleString('id-ID')}</p>
+                    )}
                     <ul className="text-xs space-y-1">
                       {(signingRequest.signers ?? []).map((s) => (
                         <li key={s.id} className="flex items-center gap-2">
@@ -519,6 +575,16 @@ export default function DocumentsPage() {
                         </li>
                       ))}
                     </ul>
+                    {signingRequest.status === 'pending' && !signingRequest.cancelledAt && (
+                      <button type="button" onClick={handleCancelSigningRequest} disabled={signingCancelSaving} className="px-3 py-1.5 bg-red-100 text-red-800 rounded text-sm hover:bg-red-200 disabled:opacity-50">
+                        {signingCancelSaving ? '...' : 'Batalkan permintaan tanda tangan'}
+                      </button>
+                    )}
+                    {signingRequest.status === 'completed' && (
+                      <a href={apiBaseUrl + '/' + adminEndpoints.documentSigningRequestCertificate(detailDoc.id, 'pdf')} target="_blank" rel="noopener noreferrer" className="inline-block px-3 py-1.5 bg-slate-100 text-slate-800 rounded text-sm hover:bg-slate-200">
+                        Unduh sertifikat audit (PDF)
+                      </a>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -529,6 +595,10 @@ export default function DocumentsPage() {
                         <input type="text" value={s.name} onChange={(e) => updateSignerRow(i, 'name', e.target.value)} placeholder="Nama" className="border border-gray-300 rounded px-2 py-1 text-sm w-32" />
                       </div>
                     ))}
+                    <div className="mb-2">
+                      <label className="block text-xs text-gray-600 mb-1">Batas waktu tanda tangan (opsional)</label>
+                      <input type="datetime-local" value={signingExpiryAt} onChange={(e) => setSigningExpiryAt(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm" />
+                    </div>
                     <div className="flex gap-2">
                       <button type="button" onClick={addSignerRow} className="text-xs text-[#1B4965] hover:underline">+ Tambah penandatangan</button>
                       <button type="button" onClick={handleCreateSigningRequest} disabled={signingRequestSaving} className="px-3 py-1.5 bg-[#1B4965] text-white rounded text-sm disabled:opacity-50">

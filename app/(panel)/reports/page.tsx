@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/api-client';
 import { adminEndpoints } from '@/lib/api-paths';
-import { BarChart3, Briefcase, Users, FileText, DollarSign, CheckSquare, TrendingUp, Clock, Target, UserCheck } from 'lucide-react';
+import { BarChart3, Briefcase, Users, FileText, DollarSign, CheckSquare, TrendingUp, Clock, Target, UserCheck, AlertTriangle } from 'lucide-react';
 
 type Summary = {
   totalCases?: number;
@@ -102,9 +102,17 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
-        <BarChart3 className="w-5 h-5 text-gray-600" />
-        <p className="text-gray-600">Reporting & Analytics — KPI, Finance, Operational</p>
+      <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="w-5 h-5 text-gray-600" />
+          <p className="text-gray-600">Reporting & Analytics — KPI, Finance, Operational</p>
+        </div>
+        <Link
+          href="/reports/sla-breach"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm font-medium hover:bg-red-100"
+        >
+          <AlertTriangle className="w-4 h-4" /> Laporan SLA Breach
+        </Link>
       </div>
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>

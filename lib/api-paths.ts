@@ -237,6 +237,9 @@ export const adminEndpoints = {
   documentSigningRequestCreate: (id: string) => `${ApiPaths.documents}/${id}/signing-request`,
   documentSigningRequestGet: (id: string) => `${ApiPaths.documents}/${id}/signing-request`,
   documentSigningRequestSign: (id: string) => `${ApiPaths.documents}/${id}/signing-request/sign`,
+  documentSigningRequestCancel: (id: string) => `${ApiPaths.documents}/${id}/signing-request/cancel`,
+  documentSigningRequestCertificate: (id: string, format?: 'json' | 'pdf') =>
+    `${ApiPaths.documents}/${id}/signing-request/certificate${format === 'pdf' ? '?format=pdf' : ''}`,
   documentBulkUpload: () => `${ApiPaths.documents}/bulk-upload`,
   documentUpload: () => `${ApiPaths.documents}/upload`,
 
@@ -353,6 +356,14 @@ export const adminEndpoints = {
 
   // Reports (W6)
   reportsDashboard: () => `${ApiPaths.reports}/dashboard`,
+  reportsSlaBreach: (params?: { from?: string; to?: string }) => {
+    const base = `${ApiPaths.reports}/sla-breach`;
+    if (!params?.from && !params?.to) return base;
+    const q = new URLSearchParams();
+    if (params.from) q.set('from', params.from);
+    if (params.to) q.set('to', params.to);
+    return `${base}?${q.toString()}`;
+  },
   reportsExport: (type: string) => `${ApiPaths.reports}/export/${type}`,
 
   // Settings (W9)

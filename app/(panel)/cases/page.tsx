@@ -16,6 +16,8 @@ type CaseItem = {
   caseType?: string | null;
   slaDueDate?: string | null;
   escalatedAt?: string | null;
+  slaPausedAt?: string | null;
+  slaPausedReason?: string | null;
   clientId: string | null;
   createdAt: string;
   client?: { id: string; email?: string; name: string | null } | null;
@@ -48,6 +50,8 @@ function CasesPageContent() {
   const [formDescription, setFormDescription] = useState('');
   const [formStatus, setFormStatus] = useState<string>('pending');
   const [formCaseType, setFormCaseType] = useState<string>('');
+  const [formSlaPaused, setFormSlaPaused] = useState(false);
+  const [formSlaPausedReason, setFormSlaPausedReason] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<CaseItem | null>(null);
   const [filterStage, setFilterStage] = useState<string>('');
   const [filterClientId, setFilterClientId] = useState<string>('');
@@ -73,6 +77,7 @@ function CasesPageContent() {
   const [conflictCheckResult, setConflictCheckResult] = useState<{ hasConflict: boolean; conflicts: { caseId: string; title: string; reason: string; matchedName?: string }[] } | null>(null);
   const [conflictCheckLoading, setConflictCheckLoading] = useState(false);
   const [overrideSaving, setOverrideSaving] = useState(false);
+  const [overrideNote, setOverrideNote] = useState('');
   const [editingCaseOverride, setEditingCaseOverride] = useState<{ approvedBy?: { name?: string } } | null>(null);
 
   const buildParams = useCallback(() => {
@@ -161,6 +166,8 @@ function CasesPageContent() {
     setFormDescription('');
     setFormStatus('pending');
     setFormCaseType('');
+    setFormSlaPaused(false);
+    setFormSlaPausedReason('');
     setConflictCheckResult(null);
     setEditingCaseOverride(null);
     setModalOpen(true);
@@ -174,7 +181,10 @@ function CasesPageContent() {
     setFormDescription(c.description || '');
     setFormStatus(c.status);
     setFormCaseType((c as CaseItem & { caseType?: string }).caseType ?? '');
+    setFormSlaPaused(!!(c as CaseItem & { slaPausedAt?: string | null }).slaPausedAt);
+    setFormSlaPausedReason((c as CaseItem & { slaPausedReason?: string | null }).slaPausedReason ?? '');
     setConflictCheckResult(null);
+    setOverrideNote('');
     setModalOpen(true);
     const res = await adminFetch(adminEndpoints.caseDetail(c.id));
     if (res.ok) {
@@ -208,15 +218,25 @@ function CasesPageContent() {
   };
 
   const handleConflictOverride = async (caseId: string) => {
+    const note = overrideNote.trim();
+    if (!note) {
+      setError('Alasan override wajib diisi (compliance)');
+      return;
+    }
     setOverrideSaving(true);
+    setError(null);
     try {
       const res = await adminFetch(adminEndpoints.caseConflictOverride(caseId), {
         method: 'POST',
-        body: JSON.stringify({ note: 'Override disetujui partner' }),
+        body: JSON.stringify({ note }),
       });
-      if (!res.ok) throw new Error(res.statusText);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || res.statusText);
+      }
       const data = await res.json();
       setEditingCaseOverride(data.conflictOverride ?? null);
+      setOverrideNote('');
       fetchCases();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Gagal override');
@@ -239,6 +259,8 @@ function CasesPageContent() {
             status: formStatus,
             client_name: formClientName.trim() || undefined,
             caseType: formCaseType.trim() || null,
+            slaPaused: formSlaPaused,
+            slaPausedReason: formSlaPausedReason.trim() || null,
           }),
         });
         if (!res.ok) {
@@ -644,14 +666,24 @@ function CasesPageContent() {
                 </div>
               )}
               {editing && !editingCaseOverride && conflictCheckResult?.hasConflict && (
-                <button
-                  type="button"
-                  onClick={() => editing && handleConflictOverride(editing.id)}
-                  disabled={overrideSaving}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50"
-                >
-                  {overrideSaving ? '...' : 'Setujui override konflik (partner)'}
-                </button>
+                <div className="space-y-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <label className="block text-sm font-medium text-amber-800">Alasan override (wajib)</label>
+                  <textarea
+                    value={overrideNote}
+                    onChange={(e) => setOverrideNote(e.target.value)}
+                    placeholder="Jelaskan alasan menyetujui override konflik..."
+                    className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm min-h-[80px]"
+                    maxLength={500}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => editing && handleConflictOverride(editing.id)}
+                    disabled={overrideSaving || !overrideNote.trim()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {overrideSaving ? '...' : 'Setujui override konflik (partner)'}
+                  </button>
+                </div>
               )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nomor Perkara</label>
@@ -702,7 +734,23 @@ function CasesPageContent() {
                   placeholder="Contoh: litigation, corporate — untuk aturan SLA"
                 />
               </div>
-              
+              {editing && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={formSlaPaused} onChange={(e) => setFormSlaPaused(e.target.checked)} className="rounded" />
+                    <span className="text-sm font-medium text-gray-700">Pause SLA</span>
+                  </label>
+                  {formSlaPaused && (
+                    <input
+                      type="text"
+                      value={formSlaPausedReason}
+                      onChange={(e) => setFormSlaPausedReason(e.target.value)}
+                      placeholder="Alasan pause (mis. tunggu klien)"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  )}
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
                 <textarea

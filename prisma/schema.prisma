@@ -221,6 +221,7 @@ model Case {
   description String?  @db.Text
   status      String   @default("pending") @db.VarChar(64)
   stage       String   @default("intake") @db.VarChar(32) // intake | active | on_hold | closed
+  stageChangedAt   DateTime? @map("stage_changed_at") @db.Timestamptz(6)
   caseType    String?  @map("case_type") @db.VarChar(64) // litigation | corporate | etc — for SLA
   clientId    String?  @map("client_id") @db.Uuid
   parties     Json?    @db.JsonB // { plaintiff?, defendant?, instansi? }
@@ -228,6 +229,8 @@ model Case {
   escalatedAt          DateTime? @map("escalated_at") @db.Timestamptz(6)
   escalationResolvedAt DateTime? @map("escalation_resolved_at") @db.Timestamptz(6)
   escalationNote       String?   @map("escalation_note") @db.VarChar(500)
+  slaPausedAt      DateTime? @map("sla_paused_at") @db.Timestamptz(6)
+  slaPausedReason  String?   @map("sla_paused_reason") @db.VarChar(255)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -247,8 +250,9 @@ model Case {
   approvalRequests  ApprovalRequest[]
   milestones        CaseMilestone[]
   events            Event[]
-  conflictOverride  CaseConflictOverride?
-  slaRemindersSent SlaReminderSent[]
+  conflictOverride   CaseConflictOverride?
+  conflictSnapshot  CaseConflictSnapshot?
+  slaRemindersSent  SlaReminderSent[]
 
   @@map("cases")
 }
@@ -264,6 +268,20 @@ model CaseConflictOverride {
   approvedBy  User @relation(fields: [approvedById], references: [id], onDelete: Cascade)
 
   @@map("case_conflict_overrides")
+}
+
+// Snapshot hasil conflict check saat case dibuat (compliance)
+model CaseConflictSnapshot {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId      String   @unique @map("case_id") @db.Uuid
+  checkedAt   DateTime @default(now()) @map("checked_at") @db.Timestamptz(6)
+  hasConflict Boolean  @map("has_conflict") @db.Boolean
+  conflicts   Json     @db.JsonB
+  checkedById String?  @map("checked_by_id") @db.Uuid
+
+  case_     Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@map("case_conflict_snapshots")
 }
 
 // --- Enterprise: case-level permission (view / edit / billing / documents) ---
@@ -345,6 +363,8 @@ model CaseMilestone {
   name        String   @db.VarChar(255)
   dueDate     DateTime? @map("due_date") @db.Date
   completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  slaDueDate  DateTime? @map("sla_due_date") @db.Timestamptz(6)
+  escalatedAt DateTime? @map("escalated_at") @db.Timestamptz(6)
   sortOrder   Int      @default(0) @map("sort_order") @db.SmallInt
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -405,11 +425,14 @@ model Document {
 }
 
 model DocumentSigningRequest {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  documentId String   @map("document_id") @db.Uuid
-  status     String   @default("pending") @db.VarChar(32) // pending | completed
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId   String    @map("document_id") @db.Uuid
+  status       String    @default("pending") @db.VarChar(32) // pending | completed | cancelled
+  expiryAt     DateTime? @map("expiry_at") @db.Timestamptz(6)
+  cancelledAt  DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  cancelledById String?  @map("cancelled_by_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   signers  DocumentSigner[]
@@ -760,7 +783,9 @@ model SlaRule {
   id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   firmId               String?  @map("firm_id") @db.Uuid
   caseType             String   @map("case_type") @db.VarChar(64) // litigation | corporate | *
-  dueDays              Int      @map("due_days") @db.SmallInt // days from case createdAt
+  dueFrom              String   @default("created_at") @map("due_from") @db.VarChar(32) // created_at | stage_changed
+  triggerStage         String?  @map("trigger_stage") @db.VarChar(32) // e.g. active — when dueFrom=stage_changed
+  dueDays              Int      @map("due_days") @db.SmallInt // days from createdAt or stageChangedAt
   reminderDaysBefore   Json     @map("reminder_days_before") @db.JsonB // [7, 3, 1]
   escalationNotifyRole String?  @map("escalation_notify_role") @db.VarChar(64) // partner | manager
   isActive             Boolean  @default(true) @map("is_active") @db.Boolean

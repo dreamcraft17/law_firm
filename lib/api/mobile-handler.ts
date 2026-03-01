@@ -11,6 +11,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthFromRequest, createSession } from '@/lib/auth-helper';
+import { runConflictCheck, saveConflictSnapshot } from '@/lib/conflict-check';
 import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
 
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -472,6 +473,15 @@ async function handleMobileLeads(rest: string[], method: string, request: NextRe
           },
           include: { client: true },
         });
+        const authMobile = await getAuthFromRequest(request, 'mobile').catch(() => null);
+        const { hasConflict, conflicts } = await runConflictCheck({
+          clientId,
+          excludeCaseId: newCase.id,
+          parties: Object.keys(parties).length ? (parties as Record<string, string>) : null,
+          partyNames: [],
+          client_name: lead.name ?? undefined,
+        });
+        await saveConflictSnapshot({ caseId: newCase.id, hasConflict, conflicts, checkedById: authMobile?.userId ?? null });
         const defaultTasks = ['Review dokumen intake', 'Jadwalkan konsultasi', 'Konfirmasi engagement'];
         for (const title of defaultTasks) {
           await prisma.task.create({ data: { title, status: 'pending', caseId: newCase.id } });
@@ -1149,6 +1159,15 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           },
           include: { client: true },
         });
+        const authMobile = await getAuthFromRequest(request, 'mobile').catch(() => null);
+        const { hasConflict, conflicts } = await runConflictCheck({
+          clientId: newCase.clientId ?? null,
+          excludeCaseId: newCase.id,
+          parties: (body.parties as Record<string, string>) ?? null,
+          partyNames: [],
+          client_name: newCase.client?.name ?? body.client_name,
+        });
+        await saveConflictSnapshot({ caseId: newCase.id, hasConflict, conflicts, checkedById: authMobile?.userId ?? null });
 
         if (caseType) {
           const rule = await prisma.slaRule.findFirst({
@@ -1475,6 +1494,7 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       if (d.caseId && !(await canAccessCase(d.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       const req = await prisma.documentSigningRequest.findFirst({
         where: { documentId: id },
+        orderBy: { createdAt: 'desc' },
         include: { signers: { orderBy: { sortOrder: 'asc' } } },
       });
       return NextResponse.json(req ?? { status: 'none', signers: [] });
@@ -1492,6 +1512,9 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       });
       if (!req) return NextResponse.json({ error: 'Signing request not found' }, { status: 404 });
       if (req.status === 'completed') return NextResponse.json({ error: 'Already completed' }, { status: 400 });
+      if (req.cancelledAt) return NextResponse.json({ error: 'Signing request has been cancelled' }, { status: 410 });
+      const now = new Date();
+      if (req.expiryAt && now > req.expiryAt) return NextResponse.json({ error: 'Signing request has expired' }, { status: 410 });
       let signer = signerId ? req.signers.find((s) => s.id === signerId) : req.signers.find((s) => s.email === signerEmail);
       if (!signer) return NextResponse.json({ error: 'Signer not found or not authorized' }, { status: 404 });
       if (signer.signedAt) return NextResponse.json({ error: 'Already signed' }, { status: 400 });

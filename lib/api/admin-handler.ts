@@ -11,41 +11,13 @@ import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthFromRequest, createSession, getPermissionsForUser, requirePermission, type AuthUser } from '@/lib/auth-helper';
+import { generateAuditCertificatePdf } from '@/lib/audit-certificate-pdf';
+import { runConflictCheck, saveConflictSnapshot } from '@/lib/conflict-check';
 import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
 import { generateTotpSecret, verifyTotp, getTotpUri } from '@/lib/totp';
 import { getNextNumber, formatCaseNumber, formatInvoiceNumber } from '@/lib/numbering';
 
 const SALT_ROUNDS = 10;
-
-/** Normalize string for conflict comparison: lowercase, strip punctuation, collapse spaces. */
-function normalizeForConflict(s: string): string {
-  return s.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-/** Dice coefficient on character bigrams — range 0..1. */
-function diceSimilarity(a: string, b: string): number {
-  if (a === b) return 1;
-  if (a.length < 2 || b.length < 2) return 0;
-  const bigrams = (str: string): Map<string, number> => {
-    const m = new Map<string, number>();
-    for (let i = 0; i < str.length - 1; i++) {
-      const bg = str.slice(i, i + 2);
-      m.set(bg, (m.get(bg) ?? 0) + 1);
-    }
-    return m;
-  };
-  const aMap = bigrams(a);
-  const bMap = bigrams(b);
-  let intersection = 0;
-  aMap.forEach((count, bg) => { intersection += Math.min(count, bMap.get(bg) ?? 0); });
-  return (2 * intersection) / (a.length - 1 + (b.length - 1));
-}
-
-/** Returns true when two normalized name strings are considered matching. */
-function namesConflict(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  return a.includes(b) || b.includes(a) || diceSimilarity(a, b) >= 0.8;
-}
 
 /** SHA-256 hex of a string. */
 function sha256(s: string): string {
@@ -592,6 +564,15 @@ async function handleLeads(rest: string[], method: string, request: NextRequest)
           },
           include: { client: true },
         });
+        const authLead = await getAuthFromRequest(request, 'admin').catch(() => null);
+        const { hasConflict, conflicts } = await runConflictCheck({
+          clientId,
+          excludeCaseId: newCase.id,
+          parties: Object.keys(parties).length ? parties : null,
+          partyNames: [],
+          client_name: lead.name ?? undefined,
+        });
+        await saveConflictSnapshot({ caseId: newCase.id, hasConflict, conflicts, checkedById: authLead?.userId ?? null });
         const taskTitles = Array.isArray(body.initialTaskTitles) ? body.initialTaskTitles : DEFAULT_INITIAL_TASKS;
         for (const title of taskTitles) {
           await prisma.task.create({
@@ -977,63 +958,16 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
   if (rest[0] === 'conflict-check' && method === 'POST') {
     try {
       const body = await request.json().catch(() => ({}));
-      const clientId = body.clientId ?? null;
-      const excludeCaseId = body.caseId ?? body.excludeCaseId ?? null;
-      const conflicts: { caseId: string; title: string; reason: string; matchedName?: string; similarity?: number }[] = [];
-      if (clientId) {
-        const sameClient = await prisma.case.findMany({
-          where: { clientId, deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
-          select: { id: true, title: true },
-        });
-        sameClient.forEach((c) => conflicts.push({ caseId: c.id, title: c.title, reason: 'same_client', matchedName: 'Klien sama' }));
-      }
-      const partyNames: string[] = [];
-      const parties = body.parties as Record<string, string> | undefined;
-      if (parties && typeof parties === 'object') {
-        ['plaintiff', 'defendant', 'instansi', 'opposing_party'].forEach((k) => {
-          const v = parties[k];
-          if (v && typeof v === 'string' && v.trim()) partyNames.push(v.trim());
-        });
-      }
-      if (Array.isArray(body.partyNames)) {
-        body.partyNames.forEach((n: unknown) => {
-          if (typeof n === 'string' && n.trim()) partyNames.push(n.trim());
-        });
-      }
-      if (body.client_name && typeof body.client_name === 'string' && body.client_name.trim()) {
-        partyNames.push(body.client_name.trim());
-      }
-      if (partyNames.length > 0) {
-        const allCases = await prisma.case.findMany({
-          where: { deletedAt: null, ...(excludeCaseId ? { id: { not: excludeCaseId } } : {}) },
-          select: { id: true, title: true, parties: true, client: { select: { name: true } } },
-        });
-        for (const c of allCases) {
-          const existing: string[] = [];
-          if (c.client?.name) existing.push(c.client.name);
-          const p = c.parties as Record<string, string> | null;
-          if (p && typeof p === 'object') {
-            ['plaintiff', 'defendant', 'instansi', 'opposing_party'].forEach((k) => {
-              const v = p[k];
-              if (v && typeof v === 'string') existing.push(v);
-            });
-          }
-          for (const name of partyNames) {
-            const nNorm = normalizeForConflict(name);
-            if (!nNorm) continue;
-            for (const e of existing) {
-              const eNorm = normalizeForConflict(e);
-              if (!eNorm) continue;
-              const sim = diceSimilarity(eNorm, nNorm);
-              if (namesConflict(eNorm, nNorm)) {
-                conflicts.push({ caseId: c.id, title: c.title, reason: 'party_overlap', matchedName: e, similarity: Math.round(sim * 100) });
-                break;
-              }
-            }
-          }
-        }
-      }
-      // Log conflict check for audit trail
+      const partyNames: string[] = Array.isArray(body.partyNames)
+        ? body.partyNames.filter((n: unknown) => typeof n === 'string' && n.trim()).map((n: string) => n.trim())
+        : [];
+      const { hasConflict, conflicts } = await runConflictCheck({
+        clientId: body.clientId ?? null,
+        excludeCaseId: body.caseId ?? body.excludeCaseId ?? null,
+        parties: (body.parties as Record<string, string>) ?? null,
+        partyNames,
+        client_name: body.client_name,
+      });
       const authLog = await getAuthFromRequest(request, 'admin').catch(() => null);
       await prisma.conflictCheckLog.create({
         data: {
@@ -1041,10 +975,10 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           checkedBy: authLog?.userId ?? null,
           inputNames: partyNames as Prisma.InputJsonValue,
           conflicts: conflicts as unknown as Prisma.InputJsonValue,
-          hasConflict: conflicts.length > 0,
+          hasConflict,
         },
       }).catch(() => {});
-      return NextResponse.json({ hasConflict: conflicts.length > 0, conflicts });
+      return NextResponse.json({ hasConflict, conflicts });
     } catch {
       return NextResponse.json({ hasConflict: false, conflicts: [] });
     }
@@ -1058,10 +992,12 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       const caseExists = await prisma.case.findFirst({ where: { id, deletedAt: null } });
       if (!caseExists) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       const body = await request.json().catch(() => ({}));
+      const note = (body.note as string)?.trim();
+      if (!note) return NextResponse.json({ error: 'Alasan override wajib diisi (compliance)' }, { status: 400 });
       await prisma.caseConflictOverride.upsert({
         where: { caseId: id },
-        create: { caseId: id, approvedById: auth.userId, note: (body.note as string)?.trim() || null },
-        update: { approvedById: auth.userId, note: (body.note as string)?.trim() ?? undefined },
+        create: { caseId: id, approvedById: auth.userId, note },
+        update: { approvedById: auth.userId, note },
       });
       const c = await prisma.case.findFirst({
         where: { id },
@@ -1073,11 +1009,16 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
     if (method === 'GET') {
       const c = await prisma.case.findFirst({
         where: { id, deletedAt: null },
-        include: { client: true, conflictOverride: { include: { approvedBy: { select: { id: true, name: true } } } } },
+        include: {
+          client: true,
+          conflictOverride: { include: { approvedBy: { select: { id: true, name: true } } } },
+          conflictSnapshot: true,
+        },
       });
       if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       const out = normalizeCaseForResponse(c);
       (out as { conflictOverride?: unknown }).conflictOverride = c.conflictOverride;
+      (out as { conflictSnapshot?: unknown }).conflictSnapshot = c.conflictSnapshot;
       return NextResponse.json(out);
     }
     if (method === 'PUT' || method === 'PATCH') {
@@ -1089,7 +1030,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       }
       const existing = await prisma.case.findFirst({ where: { id, deletedAt: null } });
       if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      const data: { title?: string; status?: string; stage?: string; caseType?: string | null; clientId?: string | null; caseNumber?: string | null; description?: string | null; parties?: unknown } = {};
+      const data: { title?: string; status?: string; stage?: string; caseType?: string | null; clientId?: string | null; caseNumber?: string | null; description?: string | null; parties?: unknown; slaPaused?: boolean; slaPausedReason?: string | null } = {};
       if (body.title !== undefined) data.title = body.title.trim();
       if (body.status !== undefined) data.status = body.status;
       if (body.stage !== undefined) data.stage = body.stage;
@@ -1098,18 +1039,30 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       if (body.caseNumber !== undefined || body.case_number !== undefined) data.caseNumber = (body.caseNumber ?? body.case_number)?.trim() || null;
       if (body.description !== undefined) data.description = body.description?.trim() || null;
       if (body.parties !== undefined) data.parties = body.parties;
+      if (body.slaPaused !== undefined || body.sla_pause !== undefined) data.slaPaused = Boolean(body.slaPaused ?? body.sla_pause);
+      if (body.slaPausedReason !== undefined || body.sla_paused_reason !== undefined) data.slaPausedReason = (body.slaPausedReason ?? body.sla_paused_reason)?.trim() || null;
       const updateData: Prisma.CaseUpdateInput = {};
       if (data.title !== undefined) updateData.title = data.title;
       if (data.status !== undefined) updateData.status = data.status;
-      if (data.stage !== undefined) updateData.stage = data.stage;
+      if (data.stage !== undefined) {
+        updateData.stage = data.stage;
+        updateData.stageChangedAt = new Date();
+      }
       if (data.caseType !== undefined) updateData.caseType = data.caseType;
       if (data.clientId === null) updateData.client = { disconnect: true };
       else if (data.clientId !== undefined) updateData.client = { connect: { id: data.clientId } };
       if (data.caseNumber !== undefined) updateData.caseNumber = data.caseNumber;
       if (data.description !== undefined) updateData.description = data.description;
       if (data.parties !== undefined) updateData.parties = data.parties as Prisma.InputJsonValue;
+      if (data.slaPaused === true) {
+        updateData.slaPausedAt = new Date();
+        updateData.slaPausedReason = data.slaPausedReason ?? 'Paused (e.g. waiting for client)';
+      } else if (data.slaPaused === false) {
+        updateData.slaPausedAt = null;
+        updateData.slaPausedReason = null;
+      }
       if (data.caseType !== undefined && data.caseType) {
-        const sla = await getSlaDueFromRule(existing.firmId, data.caseType, existing.createdAt);
+        const sla = await getSlaDueFromRule(existing.firmId, data.caseType, existing.createdAt, existing.stageChangedAt, existing.stage);
         if (sla) updateData.slaDueDate = sla.slaDueDate;
         else if (data.caseType === null) updateData.slaDueDate = null;
       }
@@ -1347,6 +1300,14 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       },
       include: { client: true },
     });
+    const { hasConflict, conflicts } = await runConflictCheck({
+      clientId: clientId ?? null,
+      excludeCaseId: c.id,
+      parties: (body.parties as Record<string, string>) ?? null,
+      partyNames: Array.isArray(body.partyNames) ? (body.partyNames as string[]).filter(Boolean) : [],
+      client_name: body.client_name,
+    });
+    await saveConflictSnapshot({ caseId: c.id, hasConflict, conflicts, checkedById: auth?.userId ?? null });
     if (caseType) {
       const sla = await getSlaDueFromRule(firmId, caseType, c.createdAt);
       if (sla) await prisma.case.update({ where: { id: c.id }, data: { slaDueDate: sla.slaDueDate } });
@@ -1805,7 +1766,10 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       const signers = Array.isArray(body.signers) ? body.signers : [];
       if (signers.length === 0) return NextResponse.json({ error: 'signers array required (email, name)' }, { status: 400 });
       const existing = await prisma.documentSigningRequest.findFirst({ where: { documentId: id }, include: { signers: true } });
-      if (existing) return NextResponse.json({ error: 'Signing request already exists for this document' }, { status: 400 });
+      if (existing && existing.status !== 'cancelled') return NextResponse.json({ error: 'Signing request already exists for this document' }, { status: 400 });
+      const expiryAt = body.expiryAt ?? body.expiry_at;
+      const expiryDate = expiryAt ? new Date(expiryAt) : null;
+      if (expiryDate && isNaN(expiryDate.getTime())) return NextResponse.json({ error: 'expiryAt invalid' }, { status: 400 });
       // Hash document fingerprint at time of signing request
       const docFingerprint = `${d.id}|${d.name}|${d.fileUrl ?? ''}|${d.caseId ?? ''}|v${d.version}|${d.createdAt.toISOString()}`;
       const docHash = sha256(docFingerprint);
@@ -1813,6 +1777,7 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
         data: {
           documentId: id,
           status: 'pending',
+          expiryAt: expiryDate,
           signers: {
             create: signers.map((s: { email: string; name?: string }, i: number) => ({
               email: (s.email ?? '').trim().toLowerCase(),
@@ -1834,6 +1799,7 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       const req = await prisma.documentSigningRequest.findFirst({
         where: { documentId: id },
+        orderBy: { createdAt: 'desc' },
         include: { signers: { orderBy: { sortOrder: 'asc' } } },
       });
       return NextResponse.json(req ?? { status: 'none', signers: [] });
@@ -1852,6 +1818,9 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       });
       if (!req) return NextResponse.json({ error: 'Signing request not found' }, { status: 404 });
       if (req.status === 'completed') return NextResponse.json({ error: 'Already completed' }, { status: 400 });
+      if (req.cancelledAt) return NextResponse.json({ error: 'Signing request has been cancelled' }, { status: 410 });
+      const now = new Date();
+      if (req.expiryAt && now > req.expiryAt) return NextResponse.json({ error: 'Signing request has expired' }, { status: 410 });
       let signer = signerId ? req.signers.find((s) => s.id === signerId) : req.signers.find((s) => s.email === signerEmail);
       if (!signer) return NextResponse.json({ error: 'Signer not found' }, { status: 404 });
       if (signer.signedAt) return NextResponse.json({ error: 'Already signed' }, { status: 400 });
@@ -1873,6 +1842,66 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
         include: { signers: { orderBy: { sortOrder: 'asc' } } },
       });
       return NextResponse.json(updated);
+    }
+    if (rest[1] === 'signing-request' && rest[2] === 'cancel' && method === 'POST') {
+      const authUser = await getAuthFromRequest(request, 'admin');
+      if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      const req = await prisma.documentSigningRequest.findFirst({
+        where: { documentId: id },
+        include: { document: true, signers: true },
+      });
+      if (!req) return NextResponse.json({ error: 'Signing request not found' }, { status: 404 });
+      if (req.status === 'completed') return NextResponse.json({ error: 'Cannot cancel completed request' }, { status: 400 });
+      if (req.cancelledAt) return NextResponse.json({ error: 'Already cancelled' }, { status: 400 });
+      await prisma.documentSigningRequest.update({
+        where: { id: req.id },
+        data: { status: 'cancelled', cancelledAt: new Date(), cancelledById: authUser.userId },
+      });
+      await prisma.document.update({
+        where: { id },
+        data: { esignStatus: null, esignLockedAt: null, esignDocHash: null },
+      }).catch(() => {});
+      const updated = await prisma.documentSigningRequest.findFirst({
+        where: { id: req.id },
+        include: { signers: { orderBy: { sortOrder: 'asc' } } },
+      });
+      return NextResponse.json(updated);
+    }
+    if (rest[1] === 'signing-request' && rest[2] === 'certificate' && method === 'GET') {
+      const req = await prisma.documentSigningRequest.findFirst({
+        where: { documentId: id },
+        include: { document: { select: { id: true, name: true, esignDocHash: true, esignSignedAt: true } }, signers: { orderBy: { sortOrder: 'asc' } } },
+      });
+      if (!req) return NextResponse.json({ error: 'Signing request not found' }, { status: 404 });
+      const format = request.nextUrl.searchParams.get('format') || 'json';
+      const audit = {
+        documentId: req.documentId,
+        documentName: req.document?.name,
+        requestId: req.id,
+        status: req.status,
+        createdAt: req.createdAt,
+        expiryAt: req.expiryAt,
+        completedAt: req.status === 'completed' ? req.updatedAt : null,
+        cancelledAt: req.cancelledAt,
+        signers: req.signers.map((s) => ({
+          email: s.email,
+          name: s.name,
+          signedAt: s.signedAt,
+          signerIp: s.signerIp,
+          signerUserAgent: s.signerUserAgent,
+        })),
+      };
+      if (format === 'pdf') {
+        try {
+          const pdfBuffer = await generateAuditCertificatePdf(audit);
+          return new NextResponse(pdfBuffer, {
+            headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="signing-certificate-${id}.pdf"` },
+          });
+        } catch {
+          return NextResponse.json({ error: 'PDF export not available; use format=json' }, { status: 501 });
+        }
+      }
+      return NextResponse.json(audit);
     }
     if (rest[1] === 'send-for-signature' && method === 'POST') {
       const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
@@ -2507,8 +2536,31 @@ async function handleEventsAdmin(rest: string[], method: string, request: NextRe
   return methodNotAllowed();
 }
 
-async function handleReports(rest: string[], method: string, _request: NextRequest): Promise<NextResponse> {
+async function handleReports(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
   if (method !== 'GET') return methodNotAllowed();
+
+  // --- SLA breach analytics: cases that have been escalated (SLA terlewati)
+  if (rest[0] === 'sla-breach') {
+    const auth = await getAuthFromRequest(request, 'admin');
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const q = request.nextUrl.searchParams;
+    const firmId = auth.firmId ?? q.get('firmId') ?? null;
+    const from = q.get('from');
+    const to = q.get('to');
+    const escalatedFilter: Prisma.DateTimeFilter = { not: null };
+    if (from) escalatedFilter.gte = new Date(from);
+    if (to) escalatedFilter.lte = new Date(to);
+    const where: Prisma.CaseWhereInput = { deletedAt: null, escalatedAt: escalatedFilter };
+    if (firmId) where.firmId = firmId;
+    const cases = await prisma.case.findMany({
+      where,
+      include: { client: { select: { id: true, name: true } } },
+      orderBy: { escalatedAt: 'desc' },
+      take: 500,
+    });
+    const total = await prisma.case.count({ where });
+    return NextResponse.json({ data: cases, total });
+  }
 
   const [
     caseCount,
@@ -2948,11 +3000,13 @@ async function handleSessions(rest: string[], method: string, request: NextReque
   return methodNotAllowed();
 }
 
-/** Returns SLA due date (createdAt + dueDays) and reminder days from rule, or null. */
+/** Returns SLA due date from rule (created_at or stage_changed + dueDays) and reminder days, or null. */
 async function getSlaDueFromRule(
   firmId: string | null,
   caseType: string | null,
-  createdAt: Date
+  createdAt: Date,
+  stageChangedAt?: Date | null,
+  currentStage?: string | null
 ): Promise<{ slaDueDate: Date; reminderDaysBefore: number[] } | null> {
   if (!caseType?.trim()) return null;
   const rule = await prisma.slaRule.findFirst({
@@ -2960,7 +3014,13 @@ async function getSlaDueFromRule(
     orderBy: { firmId: 'desc' },
   });
   if (!rule) return null;
-  const d = new Date(createdAt);
+  const dueFrom = (rule as { dueFrom?: string }).dueFrom ?? 'created_at';
+  const triggerStage = (rule as { triggerStage?: string | null }).triggerStage ?? null;
+  let base = new Date(createdAt);
+  if (dueFrom === 'stage_changed' && triggerStage && (currentStage ?? '').trim() === triggerStage.trim() && stageChangedAt) {
+    base = new Date(stageChangedAt);
+  }
+  const d = new Date(base);
   d.setDate(d.getDate() + rule.dueDays);
   const arr = rule.reminderDaysBefore as unknown;
   const reminderDays = Array.isArray(arr) ? arr.filter((x): x is number => typeof x === 'number') : [];
@@ -2988,12 +3048,14 @@ async function handleSlaRules(rest: string[], method: string, request: NextReque
       const body = await request.json().catch(() => ({}));
       const r = await prisma.slaRule.findFirst({ where: { id } });
       if (!r) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      const data: { caseType?: string; dueDays?: number; reminderDaysBefore?: Prisma.InputJsonValue; escalationNotifyRole?: string | null; isActive?: boolean } = {};
+      const data: { caseType?: string; dueDays?: number; reminderDaysBefore?: Prisma.InputJsonValue; escalationNotifyRole?: string | null; isActive?: boolean; dueFrom?: string; triggerStage?: string | null } = {};
       if (body.caseType !== undefined) data.caseType = String(body.caseType).trim();
       if (body.dueDays !== undefined) data.dueDays = Number(body.dueDays) || 0;
       if (body.reminderDaysBefore !== undefined) data.reminderDaysBefore = Array.isArray(body.reminderDaysBefore) ? body.reminderDaysBefore : (body.reminderDaysBefore != null ? [Number(body.reminderDaysBefore)] : []);
       if (body.escalationNotifyRole !== undefined) data.escalationNotifyRole = body.escalationNotifyRole?.trim() || null;
       if (body.isActive !== undefined) data.isActive = Boolean(body.isActive);
+      if (body.dueFrom !== undefined) data.dueFrom = (body.dueFrom === 'stage_changed' ? 'stage_changed' : 'created_at') as string;
+      if (body.triggerStage !== undefined) data.triggerStage = (body.triggerStage ?? body.trigger_stage)?.trim() || null;
       const updated = await prisma.slaRule.update({ where: { id }, data });
       return NextResponse.json(updated);
     }
@@ -3010,11 +3072,15 @@ async function handleSlaRules(rest: string[], method: string, request: NextReque
       ? (body.reminderDaysBefore ?? body.reminder_days_before).map((d: unknown) => Number(d)).filter((d: number) => d > 0)
       : [7, 3, 1];
     const escalationNotifyRole = (body.escalationNotifyRole ?? body.escalation_notify_role) as string | undefined;
+    const dueFrom = (body.dueFrom ?? body.due_from) === 'stage_changed' ? 'stage_changed' : 'created_at';
+    const triggerStage = (body.triggerStage ?? body.trigger_stage)?.trim() || null;
     if (!caseType?.trim()) return NextResponse.json({ error: 'caseType required' }, { status: 400 });
     const created = await prisma.slaRule.create({
       data: {
         firmId,
         caseType: caseType.trim(),
+        dueFrom,
+        triggerStage,
         dueDays,
         reminderDaysBefore: reminderDaysBefore as Prisma.InputJsonValue,
         escalationNotifyRole: escalationNotifyRole?.trim() || null,
