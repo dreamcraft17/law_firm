@@ -3322,7 +3322,7 @@ async function handleDataGovernance(rest: string[], method: string, request: Nex
     });
     await prisma.auditLog.create({
       data: {
-        userId: auth.userId, action: 'case.archived', entityType: 'case', entityId: caseId,
+        userId: auth.userId, action: 'case.archived', entity: 'case', entityId: caseId,
         details: { reason: body.reason ?? null },
       },
     }).catch(() => {});
@@ -3339,7 +3339,7 @@ async function handleDataGovernance(rest: string[], method: string, request: Nex
       data: { archivedAt: null, archivedBy: null, archivedReason: null },
     });
     await prisma.auditLog.create({
-      data: { userId: auth.userId, action: 'case.restored', entityType: 'case', entityId: caseId },
+      data: { userId: auth.userId, action: 'case.restored', entity: 'case', entityId: caseId },
     }).catch(() => {});
     return NextResponse.json(updated);
   }
@@ -3419,7 +3419,7 @@ async function handleDataGovernance(rest: string[], method: string, request: Nex
     if (deleteError) return NextResponse.json({ error: deleteError }, { status: 500 });
 
     await prisma.auditLog.create({
-      data: { userId: auth.userId, action: `${dr.entityType}.hard_deleted`, entityType: dr.entityType, entityId: dr.entityId },
+      data: { userId: auth.userId, action: `${dr.entityType}.hard_deleted`, entity: dr.entityType, entityId: dr.entityId },
     }).catch(() => {});
     return NextResponse.json(updated);
   }
@@ -3455,7 +3455,7 @@ async function handleDataGovernance(rest: string[], method: string, request: Nex
         counts: { cases: caseCount, documents: docCount, users: userCount },
       };
       await prisma.auditLog.create({
-        data: { userId: auth.userId, action: 'backup.test_run', entityType: 'system', entityId: 'backup', details: result },
+        data: { userId: auth.userId, action: 'backup.test_run', entity: 'system', entityId: 'backup', details: result },
       }).catch(() => {});
       return NextResponse.json(result);
     } catch (e) {
