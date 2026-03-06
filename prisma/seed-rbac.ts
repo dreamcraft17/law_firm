@@ -1,8 +1,12 @@
 /**
  * Seed default roles and permissions for R0.1 RBAC.
- * Run: npx ts-node --compiler-options '{"module":"CommonJS"}' prisma/seed-rbac.ts
- * Or add to package.json: "prisma": { "seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed-rbac.ts" }
+ * Run: npm run db:seed-rbac
+ * Memuat DATABASE_URL dari .env.local atau .env.
  */
+// Load env before Prisma (ts-node doesn't load .env automatically)
+require('dotenv').config({ path: '.env.local' });
+require('dotenv').config();
+
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();

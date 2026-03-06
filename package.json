@@ -30,6 +30,7 @@
     "recharts": "^3.7.0"
   },
   "devDependencies": {
+    "dotenv": "^16.4.5",
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^20.0.0",
     "@types/pdfkit": "^0.17.5",
