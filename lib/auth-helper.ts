@@ -6,6 +6,7 @@ import { prisma } from '@/lib/db';
 import { NextRequest } from 'next/server';
 
 const SESSION_EXPIRY_DAYS = 30;
+const SESSION_MAX_CONCURRENT = 5;
 
 export type AuthUser = {
   userId: string;
@@ -27,6 +28,11 @@ export async function getAuthFromRequest(request: NextRequest, source: 'admin' |
     include: { user: { include: { roleRef: { include: { permissions: { include: { permission: true } } } } } } },
   });
   if (!session?.user || session.user.deletedAt) return null;
+  // Update lastActiveAt roughly every 5 min to limit DB writes
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+  if (!session.lastActiveAt || session.lastActiveAt < fiveMinAgo) {
+    prisma.session.update({ where: { id: session.id }, data: { lastActiveAt: new Date() } }).catch(() => {});
+  }
 
   const user = session.user;
   const role = user.roleRef;
@@ -71,10 +77,20 @@ export async function createSession(
   refreshToken?: string,
   device?: { userAgent?: string; deviceId?: string; deviceLabel?: string; ipAddress?: string }
 ): Promise<string> {
-  const crypto = await import('crypto');
-  const token = source === 'admin' ? `admin_${crypto.randomBytes(24).toString('hex')}` : `mobile_${crypto.randomBytes(24).toString('hex')}`;
+  const now = new Date();
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + SESSION_EXPIRY_DAYS);
+  const existing = await prisma.session.findMany({
+    where: { userId, source, expiresAt: { gt: now } },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  if (existing.length >= SESSION_MAX_CONCURRENT) {
+    const toDelete = existing.slice(0, existing.length - SESSION_MAX_CONCURRENT + 1).map((s) => s.id);
+    await prisma.session.deleteMany({ where: { id: { in: toDelete } } });
+  }
+  const crypto = await import('crypto');
+  const token = source === 'admin' ? `admin_${crypto.randomBytes(24).toString('hex')}` : `mobile_${crypto.randomBytes(24).toString('hex')}`;
   await prisma.session.create({
     data: {
       userId,

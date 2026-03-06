@@ -144,6 +144,7 @@ model User {
   roleId       String?   @map("role_id") @db.Uuid
   clientId     String?   @map("client_id") @db.Uuid
   passwordHash String?   @map("password_hash") @db.VarChar(255)
+  passwordExpiresAt DateTime? @map("password_expires_at") @db.Timestamptz(6)
   totpSecret   String?   @map("totp_secret") @db.VarChar(255)
   totpEnabled  Boolean   @default(false) @map("totp_enabled") @db.Boolean
   avatarUrl    String?   @map("avatar_url") @db.VarChar(1024)
@@ -167,8 +168,21 @@ model User {
   notificationPrefs    UserNotificationPref?
   documentsCheckedOut  Document[]  @relation("DocumentCheckedOut")
   documentVersionsUploaded DocumentVersion[]
+  passwordHistory   PasswordHistory[]
 
   @@map("users")
+}
+
+// --- Security: password history (no reuse), optional expiry via FirmConfig
+model PasswordHistory {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_history")
 }
 
 // --- M1: Client Management ---

@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthFromRequest, createSession, getPermissionsForUser, requirePermission, type AuthUser } from '@/lib/auth-helper';
 import { generateAuditCertificatePdf } from '@/lib/audit-certificate-pdf';
 import { runConflictCheck, saveConflictSnapshot } from '@/lib/conflict-check';
+import { validatePasswordPolicy, isPasswordNotInHistory, savePasswordHistory } from '@/lib/password-policy';
 import { getRateLimitKey, rateLimit } from '@/lib/rate-limit';
 import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
 import { generateTotpSecret, verifyTotp, getTotpUri } from '@/lib/totp';
@@ -70,6 +71,11 @@ function getRequiredPermission(group: string, method: string, rest: string[]): s
   return map[group] ?? null;
 }
 
+function getClientIp(request: NextRequest): string {
+  const forwarded = request.headers.get('x-forwarded-for');
+  return forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip') ?? '';
+}
+
 export async function handleAdmin(
   pathSegments: string[],
   method: string,
@@ -78,6 +84,13 @@ export async function handleAdmin(
   const [group, ...rest] = pathSegments;
 
   try {
+    // Rate limit: general API (per IP), login has stricter limit inside handleAdminAuthLogin
+    const apiKey = getRateLimitKey(request, 'admin-api');
+    const { allowed } = rateLimit(apiKey, { max: 300, windowMs: 60 * 1000 });
+    if (!allowed) {
+      return NextResponse.json({ error: 'Terlalu banyak permintaan. Coba lagi nanti.' }, { status: 429 });
+    }
+
     if (group === 'auth' && rest[0] === 'login' && method === 'POST') {
       return handleAdminAuthLogin(request);
     }
@@ -89,6 +102,23 @@ export async function handleAdmin(
     }
     if (!auth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    // Optional: IP allowlist for admin panel (FirmConfig admin_allowed_ips)
+    if (auth.firmId) {
+      const config = await prisma.firmConfig.findUnique({
+        where: { firmId_key: { firmId: auth.firmId, key: 'admin_allowed_ips' } },
+      });
+      const ips = config?.value as string[] | null;
+      if (ips && Array.isArray(ips) && ips.length > 0) {
+        const clientIp = getClientIp(request);
+        const allowed = ips.some((allowedIp) => allowedIp.trim() === clientIp || clientIp.startsWith(allowedIp.trim()));
+        if (!allowed) {
+          await prisma.auditLog.create({
+            data: { userId: auth.userId, firmId: auth.firmId, action: 'access_denied_ip', entity: 'admin', details: { ip: clientIp } },
+          }).catch(() => {});
+          return NextResponse.json({ error: 'Akses dari IP ini tidak diizinkan' }, { status: 403 });
+        }
+      }
     }
     const perm = getRequiredPermission(group, method, rest);
     if (perm) {
@@ -202,11 +232,30 @@ async function handleUsers(rest: string[], method: string, request: NextRequest)
       const data: { name?: string; role?: string; roleId?: string | null; passwordHash?: string } = {};
       if (body.name !== undefined) data.name = body.name;
       if (body.role !== undefined) data.role = body.role;
+      const oldRoleId = existing.roleId;
       if (body.roleId !== undefined) data.roleId = body.roleId || null;
       if (body.password != null && body.password !== '') {
+        const policyErr = validatePasswordPolicy(body.password);
+        if (policyErr) return NextResponse.json({ error: policyErr }, { status: 400 });
+        const notReused = await isPasswordNotInHistory(id, body.password);
+        if (!notReused) return NextResponse.json({ error: 'Password tidak boleh sama dengan beberapa password terakhir' }, { status: 400 });
         data.passwordHash = await bcrypt.hash(body.password, SALT_ROUNDS);
       }
       const u = await prisma.user.update({ where: { id }, data });
+      if (data.passwordHash) await savePasswordHistory(id, data.passwordHash);
+      const auditAuth = await getAuthFromRequest(request, 'admin');
+      if ((body.roleId !== undefined || body.role !== undefined) && auditAuth?.userId) {
+        await prisma.auditLog.create({
+          data: {
+            userId: auditAuth.userId,
+            firmId: auditAuth.firmId ?? undefined,
+            action: 'user_role_change',
+            entity: 'user',
+            entityId: id,
+            details: { targetEmail: existing.email, oldRoleId, newRoleId: data.roleId ?? u.roleId, newRole: data.role ?? u.role },
+          },
+        }).catch(() => {});
+      }
       return NextResponse.json(omitPassword(u));
     }
     if (method === 'DELETE') {
@@ -248,6 +297,8 @@ async function handleUsers(rest: string[], method: string, request: NextRequest)
     }
     if (!body.email?.trim()) return NextResponse.json({ error: 'email required' }, { status: 400 });
     if (!body.password) return NextResponse.json({ error: 'password required' }, { status: 400 });
+    const policyErr = validatePasswordPolicy(body.password);
+    if (policyErr) return NextResponse.json({ error: policyErr }, { status: 400 });
     const existing = await prisma.user.findFirst({
       where: { email: body.email.trim().toLowerCase(), deletedAt: null },
     });
@@ -262,6 +313,7 @@ async function handleUsers(rest: string[], method: string, request: NextRequest)
         passwordHash,
       },
     });
+    await savePasswordHistory(u.id, passwordHash);
     return NextResponse.json(omitPassword(u), { status: 201 });
   }
   return methodNotAllowed();
@@ -305,6 +357,12 @@ async function handleAdminAuthLogin(request: NextRequest): Promise<NextResponse>
   if (!ok) {
     await prisma.auditLog.create({ data: { userId: user.id, action: 'login_failed', entity: 'user', entityId: user.id, details: { email: user.email } } }).catch(() => {});
     return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
+  }
+  if (user.passwordExpiresAt && new Date() > user.passwordExpiresAt) {
+    return NextResponse.json(
+      { error: 'Password telah kedaluwarsa. Silakan hubungi admin untuk reset password.', passwordExpired: true },
+      { status: 403 }
+    );
   }
   const require2FaRoles = user.firmId
     ? await prisma.firmConfig.findUnique({ where: { firmId_key: { firmId: user.firmId, key: 'require_2fa_for_roles' } } }).then((c) => (c?.value as string[] | null) ?? [])
@@ -395,6 +453,19 @@ async function handleRoles(rest: string[], method: string, request: NextRequest)
       where: { id: roleId },
       include: { permissions: { include: { permission: true } } },
     });
+    const auditAuth = await getAuthFromRequest(request, 'admin');
+    if (auditAuth?.userId) {
+      await prisma.auditLog.create({
+        data: {
+          userId: auditAuth.userId,
+          firmId: auditAuth.firmId ?? undefined,
+          action: 'permission_change',
+          entity: 'role',
+          entityId: roleId,
+          details: { roleName: role.name, permissionIds },
+        },
+      }).catch(() => {});
+    }
     return NextResponse.json(updated);
   }
   if (id) {
@@ -1703,6 +1774,7 @@ async function handleRateCards(rest: string[], method: string, request: NextRequ
 
 const DOCUMENT_MAX_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB (Vercel request body ~4.5 MB)
 const DOCUMENT_ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg', '.gif', '.webp'];
+// Validasi ketat: ekstensi + MIME + ukuran. Virus scan (ClamAV/cloud) dapat diintegrasikan di sini jika diperlukan.
 
 /** MIME types allowed per extension (block misnamed executables). Empty = any. */
 const DOCUMENT_ALLOWED_MIMES: Record<string, string[]> = {
@@ -2016,6 +2088,16 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
         await prisma.document.update({
           where: { id },
           data: { esignStatus: 'completed', esignSignedAt: new Date(), esignDocHash: completionHash },
+        }).catch(() => {});
+        const authUser = await getAuthFromRequest(request, 'admin');
+        await prisma.auditLog.create({
+          data: {
+            userId: authUser?.userId ?? undefined,
+            action: 'signing_completed',
+            entity: 'document',
+            entityId: id,
+            details: { requestId: req.id, documentHash: completionHash },
+          },
         }).catch(() => {});
       }
       const updated = await prisma.documentSigningRequest.findFirst({
