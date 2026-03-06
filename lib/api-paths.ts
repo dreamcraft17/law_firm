@@ -240,6 +240,8 @@ export const adminEndpoints = {
   documentSigningRequestCancel: (id: string) => `${ApiPaths.documents}/${id}/signing-request/cancel`,
   documentSigningRequestCertificate: (id: string, format?: 'json' | 'pdf') =>
     `${ApiPaths.documents}/${id}/signing-request/certificate${format === 'pdf' ? '?format=pdf' : ''}`,
+  documentVersions: (id: string) => `${ApiPaths.documents}/${id}/versions`,
+  documentUploadVersion: (id: string) => `${ApiPaths.documents}/${id}/upload-version`,
   documentBulkUpload: () => `${ApiPaths.documents}/bulk-upload`,
   documentUpload: () => `${ApiPaths.documents}/upload`,
 

@@ -1,5 +1,10 @@
 import PanelShell from '@/components/PanelShell';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 export default function PanelLayout(props: { children: React.ReactNode }) {
-  return <PanelShell>{props.children}</PanelShell>;
+  return (
+    <ErrorBoundary>
+      <PanelShell>{props.children}</PanelShell>
+    </ErrorBoundary>
+  );
 }

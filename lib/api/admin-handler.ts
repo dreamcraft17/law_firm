@@ -306,6 +306,15 @@ async function handleAdminAuthLogin(request: NextRequest): Promise<NextResponse>
     await prisma.auditLog.create({ data: { userId: user.id, action: 'login_failed', entity: 'user', entityId: user.id, details: { email: user.email } } }).catch(() => {});
     return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
   }
+  const require2FaRoles = user.firmId
+    ? await prisma.firmConfig.findUnique({ where: { firmId_key: { firmId: user.firmId, key: 'require_2fa_for_roles' } } }).then((c) => (c?.value as string[] | null) ?? [])
+    : [];
+  if (require2FaRoles.length > 0 && Array.isArray(require2FaRoles) && require2FaRoles.includes(user.role) && !user.totpEnabled) {
+    return NextResponse.json(
+      { error: 'Akun ini wajib 2FA. Aktifkan Two-Factor Authentication di pengaturan terlebih dahulu.', require2Fa: true },
+      { status: 403 }
+    );
+  }
   if (user.totpEnabled && user.totpSecret) {
     const code = body.totpCode?.trim();
     if (!code) return NextResponse.json({ error: 'TOTP required', totpRequired: true }, { status: 401 });
@@ -1041,7 +1050,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       return NextResponse.json(out);
     }
     if (method === 'PUT' || method === 'PATCH') {
-      let body: { title?: string; status?: string; stage?: string; caseType?: string | null; case_type?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown; slaPaused?: boolean; sla_pause?: boolean; slaPausedReason?: string | null; sla_paused_reason?: string | null; budgetAmount?: number | null } = {};
+      let body: { title?: string; status?: string; stage?: string; caseType?: string | null; case_type?: string; clientId?: string | null; client_name?: string; caseNumber?: string; case_number?: string; description?: string | null; parties?: unknown; slaPaused?: boolean; sla_pause?: boolean; slaPausedReason?: string | null; sla_paused_reason?: string | null; budgetAmount?: number | null; budgetHours?: number | null } = {};
       try {
         body = await request.json();
       } catch {
@@ -1057,7 +1066,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           return NextResponse.json({ error: 'Perkara sudah ditutup dan terkunci. Hubungi Super Admin untuk membuka kunci.' }, { status: 423 });
         }
       }
-      const data: { title?: string; status?: string; stage?: string; caseType?: string | null; clientId?: string | null; caseNumber?: string | null; description?: string | null; parties?: unknown; slaPaused?: boolean; slaPausedReason?: string | null; budgetAmount?: number | null } = {};
+      const data: { title?: string; status?: string; stage?: string; caseType?: string | null; clientId?: string | null; caseNumber?: string | null; description?: string | null; parties?: unknown; slaPaused?: boolean; slaPausedReason?: string | null; budgetAmount?: number | null; budgetHours?: number | null } = {};
       if (body.title !== undefined) data.title = body.title.trim();
       if (body.status !== undefined) data.status = body.status;
       if (body.stage !== undefined) data.stage = body.stage;
@@ -1069,6 +1078,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       if (body.slaPaused !== undefined || body.sla_pause !== undefined) data.slaPaused = Boolean(body.slaPaused ?? body.sla_pause);
       if (body.slaPausedReason !== undefined || body.sla_paused_reason !== undefined) data.slaPausedReason = (body.slaPausedReason ?? body.sla_paused_reason)?.trim() || null;
       if (body.budgetAmount !== undefined) data.budgetAmount = body.budgetAmount != null ? Number(body.budgetAmount) : null;
+      if (body.budgetHours !== undefined) data.budgetHours = body.budgetHours != null ? Number(body.budgetHours) : null;
       const updateData: Prisma.CaseUpdateInput = {};
       if (data.title !== undefined) updateData.title = data.title;
       if (data.status !== undefined) updateData.status = data.status;
@@ -1090,6 +1100,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         updateData.slaPausedReason = null;
       }
       if (data.budgetAmount !== undefined) updateData.budgetAmount = data.budgetAmount;
+      if (data.budgetHours !== undefined) updateData.budgetHours = data.budgetHours;
       if (data.caseType !== undefined && data.caseType) {
         const sla = await getSlaDueFromRule(existing.firmId, data.caseType, existing.createdAt, existing.stageChangedAt, existing.stage);
         if (sla) updateData.slaDueDate = sla.slaDueDate;
@@ -1111,7 +1122,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       return NextResponse.json({ message: 'OK' });
     }
     if (rest[1] === 'budget' && method === 'GET') {
-      const c = await prisma.case.findFirst({ where: { id, deletedAt: null }, select: { id: true, budgetAmount: true } });
+      const c = await prisma.case.findFirst({ where: { id, deletedAt: null }, select: { id: true, budgetAmount: true, budgetHours: true } });
       if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       const [teAgg, expAgg] = await Promise.all([
         prisma.timeEntry.aggregate({
@@ -1123,7 +1134,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           _sum: { amount: true },
         }),
       ]);
-      // Compute time cost: SUM(hours * rate) per entry
+      const actualHours = Number(teAgg._sum.hours ?? 0);
       const timeEntries = await prisma.timeEntry.findMany({
         where: { caseId: id, deletedAt: null, billable: true },
         select: { hours: true, rate: true },
@@ -1132,12 +1143,17 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       const expCost = Number(expAgg._sum.amount ?? 0);
       const budgetUsed = timeCost + expCost;
       const budgetAmount = c.budgetAmount ? Number(c.budgetAmount) : null;
+      const budgetHours = c.budgetHours != null ? Number(c.budgetHours) : null;
       const budgetPct = budgetAmount && budgetAmount > 0 ? Math.round((budgetUsed / budgetAmount) * 100) : null;
+      const hoursPct = budgetHours != null && budgetHours > 0 ? Math.round((actualHours / budgetHours) * 100) : null;
       const ALERT_THRESHOLD = 80;
       return NextResponse.json({
         budgetAmount,
+        budgetHours,
+        actualHours: Math.round(actualHours * 100) / 100,
         budgetUsed: Math.round(budgetUsed),
         budgetPct,
+        hoursPct,
         isOverAlert: budgetPct != null && budgetPct >= ALERT_THRESHOLD,
         alertThreshold: ALERT_THRESHOLD,
         breakdown: { timeCost: Math.round(timeCost), expCost: Math.round(expCost) },
@@ -1872,6 +1888,54 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       const logs = await prisma.documentAuditLog.findMany({ where: { documentId: id }, orderBy: { createdAt: 'desc' }, take: 200 });
       return NextResponse.json({ data: logs });
+    }
+    if (rest[1] === 'versions' && method === 'GET') {
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      const versions = await prisma.documentVersion.findMany({
+        where: { documentId: id },
+        orderBy: { version: 'desc' },
+        include: { uploadedBy: { select: { id: true, name: true, email: true } } },
+      });
+      const current = { version: d.version, fileUrl: d.fileUrl, createdAt: d.updatedAt, uploadedBy: null };
+      return NextResponse.json({ data: [current, ...versions], currentVersion: d.version });
+    }
+    if (rest[1] === 'upload-version' && method === 'POST') {
+      const authUser = await getAuthFromRequest(request, 'admin');
+      if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      if (d.checkedOutById && d.checkedOutById !== authUser.userId) return NextResponse.json({ error: 'Dokumen sedang di-check-out oleh user lain' }, { status: 400 });
+      const formData = await request.formData();
+      const file = formData.get('file') instanceof File ? (formData.get('file') as File) : formData.getAll('files')[0] instanceof File ? (formData.getAll('files')[0] as File) : null;
+      if (!file || file.size === 0) return NextResponse.json({ error: 'File wajib' }, { status: 400 });
+      if (file.size > DOCUMENT_MAX_SIZE_BYTES) return NextResponse.json({ error: `File melebihi batas ${DOCUMENT_MAX_SIZE_BYTES / 1024 / 1024} MB` }, { status: 400 });
+      if (!isAllowedDocumentFilename(file.name)) return NextResponse.json({ error: `Format tidak diizinkan. Gunakan: ${DOCUMENT_ALLOWED_EXTENSIONS.join(', ')}` }, { status: 400 });
+      if (!isAllowedDocumentMime(file.name, file.type || '')) return NextResponse.json({ error: 'Tipe file tidak sesuai ekstensi' }, { status: 400 });
+      await prisma.documentVersion.create({
+        data: { documentId: id, version: d.version, fileUrl: d.fileUrl, uploadedById: authUser.userId },
+      });
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200) || 'document';
+      let newFileUrl: string;
+      const hasBlobToken = !!process.env.BLOB_READ_WRITE_TOKEN;
+      if (hasBlobToken) {
+        const { put } = await import('@vercel/blob');
+        const { url } = await put(`documents/${Date.now()}-${safeName}`, file, { access: 'public' });
+        newFileUrl = url;
+      } else {
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+        await mkdir(uploadDir, { recursive: true });
+        const filename = `${Date.now()}-${safeName}`;
+        await writeFile(path.join(uploadDir, filename), Buffer.from(await file.arrayBuffer()));
+        newFileUrl = `/uploads/${filename}`;
+      }
+      const updated = await prisma.document.update({
+        where: { id },
+        data: { fileUrl: newFileUrl, version: d.version + 1, checkedOutById: null, checkedOutAt: null },
+        include: { case: { select: { id: true, title: true } } },
+      });
+      await prisma.documentAuditLog.create({ data: { documentId: id, userId: authUser.userId, action: 'version_upload', meta: { version: updated.version } } }).catch(() => {});
+      return NextResponse.json(updated, { status: 200 });
     }
     if (rest[1] === 'signing-request' && method === 'POST') {
       const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });

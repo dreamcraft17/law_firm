@@ -5,6 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import { adminFetch } from '@/lib/api-client';
 import { adminEndpoints } from '@/lib/api-paths';
 import { Pencil, Trash2, FolderPlus, Filter, Save, Flag, UserPlus, AlertTriangle, CheckCircle } from 'lucide-react';
+import TableSkeleton from '@/components/Skeleton';
+import EmptyState from '@/components/EmptyState';
 
 type CaseItem = {
   id: string;
@@ -433,7 +435,7 @@ function CasesPageContent() {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold text-gray-900">Case Management</h1>
+        <h1 className="text-xl font-semibold text-[var(--text-primary)]">Case Management</h1>
         <button
           type="button"
           onClick={openAdd}
@@ -444,8 +446,8 @@ function CasesPageContent() {
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
-        <Filter className="w-4 h-4 text-slate-500" />
+      <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-[var(--border)]">
+        <Filter className="w-4 h-4 text-slate-500 dark:text-slate-400" aria-hidden />
         <select
           value={filterStage}
           onChange={(e) => setFilterStage(e.target.value)}
@@ -511,31 +513,47 @@ function CasesPageContent() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-[var(--surface-card)] rounded-xl border border-[var(--border)] overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Memuat...</div>
+          <div className="p-8" aria-live="polite">
+            <TableSkeleton rows={6} cols={8} />
+          </div>
         ) : list.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">Belum ada perkara. Klik Buat Perkara.</div>
+          <EmptyState
+            icon={<FolderPlus className="h-7 w-7" />}
+            title="Belum ada perkara"
+            description="Buat perkara pertama untuk memulai."
+            action={
+              <button
+                type="button"
+                onClick={openAdd}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[#1B4965] text-white rounded-lg text-sm font-medium hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
+              >
+                <FolderPlus size={18} aria-hidden />
+                Buat Perkara
+              </button>
+            }
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-px" role="region" aria-label="Tabel daftar perkara">
+            <table className="w-full text-sm min-w-[800px]">
               <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="text-left py-3 px-4 font-medium text-gray-700">Judul</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700">Nomor</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700">Stage</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700">Status</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700">Klien</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700">SLA Due</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700">Escalasi</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700">Aksi</th>
+                <tr className="border-b border-[var(--border)] bg-slate-50 dark:bg-slate-800/50">
+                  <th className="text-left py-3 px-4 font-medium text-[var(--text-primary)]">Judul</th>
+                  <th className="text-left py-3 px-4 font-medium text-[var(--text-primary)]">Nomor</th>
+                  <th className="text-left py-3 px-4 font-medium text-[var(--text-primary)]">Stage</th>
+                  <th className="text-left py-3 px-4 font-medium text-[var(--text-primary)]">Status</th>
+                  <th className="text-left py-3 px-4 font-medium text-[var(--text-primary)]">Klien</th>
+                  <th className="text-left py-3 px-4 font-medium text-[var(--text-primary)]">SLA Due</th>
+                  <th className="text-left py-3 px-4 font-medium text-[var(--text-primary)]">Escalasi</th>
+                  <th className="text-left py-3 px-4 font-medium text-[var(--text-primary)]"><span className="sr-only">Aksi</span></th>
                 </tr>
               </thead>
               <tbody>
                 {list.map((c) => (
-                  <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50/50">
-                    <td className="py-3 px-4 text-gray-900">{c.title}</td>
-                    <td className="py-3 px-4 text-gray-600">{c.caseNumber || '-'}</td>
+                  <tr key={c.id} className="border-b border-[var(--border)] hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                    <td className="py-3 px-4 text-[var(--text-primary)]">{c.title}</td>
+                    <td className="py-3 px-4 text-[var(--text-secondary)]">{c.caseNumber || '-'}</td>
                     <td className="py-3 px-4 text-gray-600">{(c as CaseItem).stage ?? '-'}</td>
                     <td className="py-3 px-4">
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
@@ -546,10 +564,10 @@ function CasesPageContent() {
                         {c.status === 'aktif' ? 'Aktif' : 'Pending'}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-gray-600">
+                    <td className="py-3 px-4 text-[var(--text-secondary)]">
                       {c.client ? (c.client.name || c.client.email) : '-'}
                     </td>
-                    <td className="py-3 px-4 text-gray-600 text-xs">
+                    <td className="py-3 px-4 text-[var(--text-secondary)] text-xs">
                       {(c as CaseItem).slaDueDate ? new Date((c as CaseItem).slaDueDate!).toLocaleDateString('id-ID') : '-'}
                     </td>
                     <td className="py-3 px-4">
@@ -562,34 +580,34 @@ function CasesPageContent() {
                         <button
                           type="button"
                           onClick={() => openTeam(c)}
-                          className="p-1.5 text-[#1B4965] hover:bg-blue-50 rounded"
-                          title="Assign pengacara / tim"
+                          className="p-1.5 text-[#1B4965] hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                          aria-label="Assign pengacara / tim"
                         >
-                          <UserPlus size={16} />
+                          <UserPlus size={16} aria-hidden />
                         </button>
                         <button
                           type="button"
                           onClick={() => openMilestones(c)}
-                          className="p-1.5 text-[#1B4965] hover:bg-blue-50 rounded"
-                          title="Milestones"
+                          className="p-1.5 text-[#1B4965] hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                          aria-label="Milestones"
                         >
-                          <Flag size={16} />
+                          <Flag size={16} aria-hidden />
                         </button>
                         <button
                           type="button"
                           onClick={() => openEdit(c)}
-                          className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
-                          title="Edit"
+                          className="p-1.5 text-[var(--text-secondary)] hover:bg-slate-100 dark:hover:bg-slate-700 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                          aria-label="Edit perkara"
                         >
-                          <Pencil size={16} />
+                          <Pencil size={16} aria-hidden />
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeleteConfirm(c)}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                          title="Hapus"
+                          className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                          aria-label="Hapus perkara"
                         >
-                          <Trash2 size={16} />
+                          <Trash2 size={16} aria-hidden />
                         </button>
                       </div>
                     </td>
@@ -602,10 +620,10 @@ function CasesPageContent() {
       </div>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="case-modal-title">
+          <div className="bg-[var(--surface-card)] rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto max-sm:max-w-[95vw]">
+            <div className="p-6 border-b border-[var(--border)]">
+              <h2 id="case-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">
                 {editing ? 'Edit Perkara' : 'Buat Perkara'}
               </h2>
             </div>

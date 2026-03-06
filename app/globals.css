@@ -2,14 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Design tokens: konsistensi warna & spacing */
 :root {
   --corporate: #1e3a8a;
   --accent: #3b82f6;
   --surface: #f0f4f8;
+  --surface-card: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border: #e2e8f0;
+}
+
+.dark {
+  --surface: #0f172a;
+  --surface-card: #1e293b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --border: #334155;
 }
 
 body {
-  @apply bg-surface text-slate-800 antialiased;
+  @apply antialiased;
+  background-color: var(--surface);
+  color: var(--text-primary);
 }
 
 .sidebar-scroll::-webkit-scrollbar {

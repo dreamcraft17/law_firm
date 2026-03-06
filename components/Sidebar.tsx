@@ -56,7 +56,7 @@ export default function Sidebar() {
     <aside className="w-[260px] min-h-screen flex flex-col bg-[#1e3a8a] shrink-0 border-r border-[#1d4ed8]/40 shadow-xl">
       {/* Logo */}
       <div className="p-5 border-b border-[#1d4ed8]/40">
-        <Link href="/dashboard" className="flex items-center gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/50 rounded-lg">
+        <Link href="/dashboard" className="flex items-center gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1e3a8a] rounded-lg" aria-label="Beranda LEGALTECH">
           <div className="w-11 h-11 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center overflow-hidden backdrop-blur-sm shrink-0">
             <Image
               src="/logoapplagio.png"
@@ -79,16 +79,16 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 overflow-y-auto sidebar-scroll">
-        <p className="px-3 mb-2 text-[10px] font-semibold text-blue-300/60 uppercase tracking-widest">Menu</p>
-        <ul className="space-y-0.5">
+      <nav className="flex-1 px-3 py-4 overflow-y-auto sidebar-scroll" aria-label="Navigasi utama">
+        <p className="px-3 mb-2 text-[10px] font-semibold text-blue-300/60 uppercase tracking-widest" id="sidebar-menu-label">Menu</p>
+        <ul className="space-y-0.5" aria-labelledby="sidebar-menu-label">
           {nav.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href || pathname.startsWith(href + '/');
             return (
               <li key={href}>
                 <Link
                   href={href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 ${
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#1e3a8a] ${
                     isActive
                       ? 'bg-white text-[#1e3a8a] shadow-sm'
                       : 'text-blue-100/80 hover:bg-white/10 hover:text-white'

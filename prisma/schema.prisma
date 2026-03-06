@@ -166,6 +166,7 @@ model User {
   caseMessages         CaseMessage[]
   notificationPrefs    UserNotificationPref?
   documentsCheckedOut  Document[]  @relation("DocumentCheckedOut")
+  documentVersionsUploaded DocumentVersion[]
 
   @@map("users")
 }
@@ -232,6 +233,7 @@ model Case {
   slaPausedAt      DateTime? @map("sla_paused_at") @db.Timestamptz(6)
   slaPausedReason  String?   @map("sla_paused_reason") @db.VarChar(255)
   budgetAmount     Decimal?  @map("budget_amount") @db.Decimal(18, 2)
+  budgetHours      Decimal?  @map("budget_hours") @db.Decimal(12, 2)
   archivedAt       DateTime? @map("archived_at") @db.Timestamptz(6)
   archivedBy       String?   @map("archived_by") @db.Uuid
   archivedReason   String?   @map("archived_reason") @db.VarChar(500)
@@ -422,10 +424,25 @@ model Document {
   case              Case?     @relation(fields: [caseId], references: [id])
   checkedOutByUser  User?     @relation("DocumentCheckedOut", fields: [checkedOutById], references: [id])
   signingRequests   DocumentSigningRequest[]
+  versions          DocumentVersion[]
 
   auditLogs DocumentAuditLog[]
 
   @@map("documents")
+}
+
+model DocumentVersion {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId  String   @map("document_id") @db.Uuid
+  version     Int      @db.SmallInt
+  fileUrl     String?  @map("file_url") @db.VarChar(2048)
+  uploadedById String? @map("uploaded_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  uploadedBy User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@map("document_versions")
 }
 
 model DocumentSigningRequest {

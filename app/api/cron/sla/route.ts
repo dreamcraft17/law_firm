@@ -5,6 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { isEmailEnabled, sendNotificationEmail } from '@/lib/notification-email';
 
 const CRON_SECRET = process.env.CRON_SECRET;
 // Indonesia WIB = UTC+7
@@ -73,27 +74,23 @@ async function runSlaCron(): Promise<NextResponse> {
         if (existing) continue;
 
         const userIds = c.teamMembers.map((m) => m.userId);
+        const title = `SLA: "${c.title}" jatuh tempo dalam ${daysBefore} hari`;
+        const body = `Batas SLA: ${due.toISOString().slice(0, 10)}`;
         if (userIds.length === 0) {
-          // no team: create one notification with null userId so it appears in "broadcast" or assign to firm admins
           await prisma.notification.create({
-            data: {
-              title: `SLA: "${c.title}" jatuh tempo dalam ${daysBefore} hari`,
-              body: `Batas SLA: ${due.toISOString().slice(0, 10)}`,
-              caseId: c.id,
-              entityType: 'sla_reminder',
-            },
+            data: { title, body, caseId: c.id, entityType: 'sla_reminder' },
           });
         } else {
+          const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true } });
+          const emailByUser = new Map(users.map((u) => [u.id, u.email]));
           for (const userId of userIds) {
             await prisma.notification.create({
-              data: {
-                userId,
-                title: `SLA: "${c.title}" jatuh tempo dalam ${daysBefore} hari`,
-                body: `Batas SLA: ${due.toISOString().slice(0, 10)}`,
-                caseId: c.id,
-                entityType: 'sla_reminder',
-              },
+              data: { userId, title, body, caseId: c.id, entityType: 'sla_reminder' },
             });
+            if (isEmailEnabled()) {
+              const email = emailByUser.get(userId);
+              if (email) await sendNotificationEmail(email, title, body);
+            }
           }
         }
         await prisma.slaReminderSent.create({ data: { caseId: c.id, daysBefore } });
@@ -122,29 +119,26 @@ async function runSlaCron(): Promise<NextResponse> {
 
       const targets = await prisma.user.findMany({
         where: { deletedAt: null, role: { equals: role, mode: 'insensitive' }, ...(c.firmId ? { firmId: c.firmId } : {}) },
-        select: { id: true },
+        select: { id: true, email: true },
       });
       const userIds = targets.length > 0 ? targets.map((u) => u.id) : c.teamMembers.map((m) => m.userId);
+      const escTitle = `[ESCALASI] SLA terlewati: "${c.title}"`;
+      const escBody = `Batas SLA telah lewat. Case ID: ${c.id}`;
       if (userIds.length === 0) {
         await prisma.notification.create({
-          data: {
-            title: `[ESCALASI] SLA terlewati: "${c.title}"`,
-            body: `Batas SLA telah lewat. Case ID: ${c.id}`,
-            caseId: c.id,
-            entityType: 'sla_escalation',
-          },
+          data: { title: escTitle, body: escBody, caseId: c.id, entityType: 'sla_escalation' },
         });
       } else {
+        const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true } });
+        const emailByUser = new Map(users.map((u) => [u.id, u.email]));
         for (const userId of userIds) {
           await prisma.notification.create({
-            data: {
-              userId,
-              title: `[ESCALASI] SLA terlewati: "${c.title}"`,
-              body: `Batas SLA telah lewat. Case ID: ${c.id}`,
-              caseId: c.id,
-              entityType: 'sla_escalation',
-            },
+            data: { userId, title: escTitle, body: escBody, caseId: c.id, entityType: 'sla_escalation' },
           });
+          if (isEmailEnabled()) {
+            const email = emailByUser.get(userId);
+            if (email) await sendNotificationEmail(email, escTitle, escBody);
+          }
         }
       }
       escalations.push(c.id);

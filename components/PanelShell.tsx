@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
+import AdminOnboarding from '@/components/AdminOnboarding';
 
 const titles: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -27,7 +28,7 @@ export default function PanelShell(props: { children: React.ReactNode }) {
   const title = titles[base] || 'Admin Panel';
 
   return (
-    <div className="flex min-h-screen bg-surface">
+    <div className="flex min-h-screen bg-[var(--surface)]">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header title={title} />
@@ -37,6 +38,7 @@ export default function PanelShell(props: { children: React.ReactNode }) {
           </div>
         </main>
       </div>
+      <AdminOnboarding />
     </div>
   );
 }

@@ -5,6 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { isEmailEnabled, sendNotificationEmail } from '@/lib/notification-email';
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -61,16 +62,16 @@ async function runSigningReminder(): Promise<NextResponse> {
       const body = `${unsignedCount} signer belum tanda tangan.`;
 
       if (userIds.length > 0) {
+        const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true } });
+        const emailByUser = new Map(users.map((u) => [u.id, u.email]));
         for (const userId of userIds) {
           await prisma.notification.create({
-            data: {
-              userId,
-              title,
-              body,
-              caseId,
-              entityType: 'signing_reminder',
-            },
+            data: { userId, title, body, caseId, entityType: 'signing_reminder' },
           });
+          if (isEmailEnabled()) {
+            const email = emailByUser.get(userId);
+            if (email) await sendNotificationEmail(email, title, body);
+          }
           remindersCreated += 1;
         }
       } else {
