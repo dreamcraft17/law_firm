@@ -74,7 +74,7 @@ export default function SlaBreachReportPage() {
   const fmt = (d: string | null | undefined) => (d ? new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 
   return (
-    <div className="-m-6 p-6 bg-white min-h-full">
+    <div>
       <div className="flex items-center gap-4 mb-4">
         <Link href="/reports" className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900">
           <ArrowLeft className="w-4 h-4" /> Laporan
