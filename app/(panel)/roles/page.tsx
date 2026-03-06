@@ -197,27 +197,40 @@ export default function RolesPage() {
             </div>
             <div className="p-6 overflow-y-auto flex-1">
               <p className="text-slate-500 text-sm mb-4">Centang permission yang boleh untuk role ini.</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {permissions.map((p) => (
-                  <label
-                    key={p.id}
-                    className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-slate-50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(p.id)}
-                      onChange={() => togglePermission(p.id)}
-                      className="rounded border-slate-300"
-                    />
-                    <span className="text-slate-800 font-mono text-xs">{p.key}</span>
-                    {p.description && (
-                      <span className="text-slate-500 text-xs truncate" title={p.description}>
-                        {p.description}
-                      </span>
-                    )}
-                  </label>
-                ))}
-              </div>
+              {permissions.length === 0 ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  <p className="font-medium mb-1">Daftar permission kosong</p>
+                  <p className="text-amber-700">
+                    Tabel <code className="bg-amber-100 px-1 rounded">permissions</code> di database belum terisi.
+                    Jalankan seed RBAC untuk mengisi permission default:
+                  </p>
+                  <pre className="mt-2 p-2 bg-slate-800 text-slate-100 rounded text-xs overflow-x-auto">
+                    npm run db:seed-rbac
+                  </pre>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {permissions.map((p) => (
+                    <label
+                      key={p.id}
+                      className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(p.id)}
+                        onChange={() => togglePermission(p.id)}
+                        className="rounded border-slate-300"
+                      />
+                      <span className="text-slate-800 font-mono text-xs">{p.key}</span>
+                      {p.description && (
+                        <span className="text-slate-500 text-xs truncate" title={p.description}>
+                          {p.description}
+                        </span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="p-6 border-t border-slate-200 flex justify-end gap-2">
               <button
