@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthFromRequest, createSession, getPermissionsForUser, requirePermission, type AuthUser } from '@/lib/auth-helper';
 import { generateAuditCertificatePdf } from '@/lib/audit-certificate-pdf';
 import { runConflictCheck, saveConflictSnapshot } from '@/lib/conflict-check';
+import { getRateLimitKey, rateLimit } from '@/lib/rate-limit';
 import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
 import { generateTotpSecret, verifyTotp, getTotpUri } from '@/lib/totp';
 import { getNextNumber, formatCaseNumber, formatInvoiceNumber } from '@/lib/numbering';
@@ -273,6 +274,14 @@ function getDeviceFromRequest(request: NextRequest): { userAgent?: string; ipAdd
 }
 
 async function handleAdminAuthLogin(request: NextRequest): Promise<NextResponse> {
+  const key = getRateLimitKey(request, 'admin_login');
+  const { allowed, remaining, resetAt } = rateLimit(key, { max: 10, windowMs: 60 * 1000 });
+  if (!allowed) {
+    return NextResponse.json(
+      { error: 'Terlalu banyak percobaan login. Coba lagi nanti.' },
+      { status: 429, headers: { 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': String(Math.ceil(resetAt / 1000)) } }
+    );
+  }
   let body: { email?: string; password?: string; totpCode?: string } = {};
   try {
     body = await request.json();
@@ -289,6 +298,7 @@ async function handleAdminAuthLogin(request: NextRequest): Promise<NextResponse>
     include: { roleRef: { include: { permissions: { include: { permission: true } } } } },
   });
   if (!user || !user.passwordHash) {
+    await prisma.auditLog.create({ data: { action: 'login_failed', entity: 'user', details: { email, reason: 'user_not_found' } } }).catch(() => {});
     return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
   }
   const ok = await bcrypt.compare(password, user.passwordHash);
@@ -997,14 +1007,17 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       const caseExists = await prisma.case.findFirst({ where: { id, deletedAt: null } });
       if (!caseExists) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      // Immutable: once override is created, it cannot be changed
+      const existing = await prisma.caseConflictOverride.findUnique({ where: { caseId: id } });
+      if (existing) return NextResponse.json({ error: 'Override sudah ada dan tidak dapat diubah (immutable compliance record)' }, { status: 409 });
       const body = await request.json().catch(() => ({}));
       const note = (body.note as string)?.trim();
       if (!note) return NextResponse.json({ error: 'Alasan override wajib diisi (compliance)' }, { status: 400 });
-      await prisma.caseConflictOverride.upsert({
-        where: { caseId: id },
-        create: { caseId: id, approvedById: auth.userId, note },
-        update: { approvedById: auth.userId, note },
-      });
+      await prisma.caseConflictOverride.create({ data: { caseId: id, approvedById: auth.userId, note } });
+      // Audit log
+      await prisma.auditLog.create({
+        data: { userId: auth.userId, entity: 'case', entityId: id, action: 'conflict.override', details: { note, caseId: id } },
+      }).catch(() => {});
       const c = await prisma.case.findFirst({
         where: { id },
         include: { client: true, conflictOverride: { include: { approvedBy: { select: { id: true, name: true } } } } },
@@ -1036,6 +1049,14 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       }
       const existing = await prisma.case.findFirst({ where: { id, deletedAt: null } });
       if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      // Immutable Audit Mode: closed cases are locked — only status change back is allowed by admin with cases.unlock permission
+      if (existing.status === 'closed' && body.status !== 'closed') {
+        const authLock = await getAuthFromRequest(request, 'admin').catch(() => null);
+        const canUnlock = authLock?.permissions?.includes('cases.unlock') ?? false;
+        if (!canUnlock) {
+          return NextResponse.json({ error: 'Perkara sudah ditutup dan terkunci. Hubungi Super Admin untuk membuka kunci.' }, { status: 423 });
+        }
+      }
       const data: { title?: string; status?: string; stage?: string; caseType?: string | null; clientId?: string | null; caseNumber?: string | null; description?: string | null; parties?: unknown; slaPaused?: boolean; slaPausedReason?: string | null; budgetAmount?: number | null } = {};
       if (body.title !== undefined) data.title = body.title.trim();
       if (body.status !== undefined) data.status = body.status;
@@ -1667,9 +1688,34 @@ async function handleRateCards(rest: string[], method: string, request: NextRequ
 const DOCUMENT_MAX_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB (Vercel request body ~4.5 MB)
 const DOCUMENT_ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg', '.gif', '.webp'];
 
+/** MIME types allowed per extension (block misnamed executables). Empty = any. */
+const DOCUMENT_ALLOWED_MIMES: Record<string, string[]> = {
+  '.pdf': ['application/pdf'],
+  '.doc': ['application/msword'],
+  '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  '.xls': ['application/vnd.ms-excel'],
+  '.xlsx': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  '.txt': ['text/plain', 'text/html'],
+  '.png': ['image/png'],
+  '.jpg': ['image/jpeg'],
+  '.jpeg': ['image/jpeg'],
+  '.gif': ['image/gif'],
+  '.webp': ['image/webp'],
+};
+
 function isAllowedDocumentFilename(name: string): boolean {
   const lower = name.toLowerCase();
   return DOCUMENT_ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function isAllowedDocumentMime(filename: string, mime: string): boolean {
+  const lower = filename.toLowerCase();
+  const ext = DOCUMENT_ALLOWED_EXTENSIONS.find((e) => lower.endsWith(e));
+  if (!ext) return false;
+  const allowed = DOCUMENT_ALLOWED_MIMES[ext];
+  if (!allowed?.length) return true;
+  const m = mime?.toLowerCase().split(';')[0].trim();
+  return m ? allowed.includes(m) : false;
 }
 
 async function handleDocumentFileUpload(request: NextRequest): Promise<NextResponse> {
@@ -1698,6 +1744,12 @@ async function handleDocumentFileUpload(request: NextRequest): Promise<NextRespo
       if (!isAllowedDocumentFilename(file.name)) {
         return NextResponse.json(
           { error: `Format file "${file.name}" tidak diizinkan. Gunakan: ${DOCUMENT_ALLOWED_EXTENSIONS.join(', ')}` },
+          { status: 400 }
+        );
+      }
+      if (!isAllowedDocumentMime(file.name, file.type || '')) {
+        return NextResponse.json(
+          { error: `Tipe file "${file.name}" tidak sesuai ekstensi. Upload ditolak untuk keamanan.` },
           { status: 400 }
         );
       }
@@ -1942,6 +1994,7 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       const audit = {
         documentId: req.documentId,
         documentName: req.document?.name,
+        documentHash: req.document?.esignDocHash ?? null,
         requestId: req.id,
         status: req.status,
         createdAt: req.createdAt,
@@ -1990,6 +2043,10 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       return d ? NextResponse.json(d) : NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
     if (method === 'PUT' || method === 'PATCH') {
+      const docForLock = await prisma.document.findFirst({ where: { id, deletedAt: null }, select: { esignLockedAt: true, esignStatus: true } });
+      if (docForLock?.esignLockedAt && docForLock.esignStatus === 'signing') {
+        return NextResponse.json({ error: 'Dokumen terkunci selama proses e-sign aktif. Batalkan signing request untuk melanjutkan.' }, { status: 423 });
+      }
       const body = await request.json().catch(() => ({}));
       const data: Prisma.DocumentUpdateInput = {};
       if (body.name !== undefined) data.name = body.name;
@@ -2615,6 +2672,7 @@ async function handleReports(rest: string[], method: string, request: NextReques
     const firmId = auth.firmId ?? q.get('firmId') ?? null;
     const from = q.get('from');
     const to = q.get('to');
+    const format = q.get('format') || 'json';
     const escalatedFilter: Prisma.DateTimeNullableFilter = { not: null };
     if (from) escalatedFilter.gte = new Date(from);
     if (to) escalatedFilter.lte = new Date(to);
@@ -2627,6 +2685,32 @@ async function handleReports(rest: string[], method: string, request: NextReques
       take: 500,
     });
     const total = await prisma.case.count({ where });
+    if (format === 'csv') {
+      const escape = (v: string | number | null | undefined) => {
+        const s = String(v ?? '');
+        return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const rows = [
+        'Judul,No. Perkara,Klien,Tipe,SLA Due,Escalasi,Case ID',
+        ...cases.map((c) =>
+          [
+            escape(c.title),
+            escape(c.caseNumber),
+            escape(c.client?.name),
+            escape(c.caseType),
+            c.slaDueDate ? new Date(c.slaDueDate).toISOString().slice(0, 10) : '',
+            c.escalatedAt ? new Date(c.escalatedAt).toISOString() : '',
+            c.id,
+          ].join(',')
+        ),
+      ];
+      return new NextResponse(rows.join('\n'), {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="sla-breach-${new Date().toISOString().slice(0, 10)}.csv"`,
+        },
+      });
+    }
     return NextResponse.json({ data: cases, total });
   }
 
@@ -3219,6 +3303,72 @@ async function handleEscalations(rest: string[], method: string, request: NextRe
       resolved: cases.filter((c) => !!c.escalationResolvedAt).length,
     };
     return NextResponse.json({ summary, data: cases });
+  }
+
+  // GET /escalations/analytics — SLA trend + top breach types + lawyer stats
+  if (rest[0] === 'analytics' && method === 'GET') {
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+    const [allEscalated, totalWithSla, totalEscalated] = await Promise.all([
+      prisma.case.findMany({
+        where: { deletedAt: null, ...firmWhere, escalatedAt: { not: null, gte: sixMonthsAgo } },
+        select: {
+          caseType: true, escalatedAt: true,
+          teamMembers: { select: { role: true, user: { select: { id: true, name: true, email: true } } } },
+        },
+      }),
+      prisma.case.count({ where: { deletedAt: null, ...firmWhere, slaDueDate: { not: null } } }),
+      prisma.case.count({ where: { deletedAt: null, ...firmWhere, escalatedAt: { not: null } } }),
+    ]);
+
+    // Monthly trend (last 6 months)
+    const monthlyMap: Record<string, number> = {};
+    for (const c of allEscalated) {
+      const key = new Date(c.escalatedAt!).toISOString().slice(0, 7);
+      monthlyMap[key] = (monthlyMap[key] ?? 0) + 1;
+    }
+    const trend = Object.entries(monthlyMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, count]) => ({ month, count }));
+
+    // Top case types by escalation count
+    const typeMap: Record<string, number> = {};
+    for (const c of allEscalated) {
+      const t = c.caseType ?? 'Lainnya';
+      typeMap[t] = (typeMap[t] ?? 0) + 1;
+    }
+    const topTypes = Object.entries(typeMap)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 6)
+      .map(([type, count]) => ({ type, count }));
+
+    // Top lawyers by breach count (via teamMembers)
+    const lawyerMap: Record<string, { name: string; email: string; count: number }> = {};
+    for (const c of allEscalated) {
+      for (const tm of c.teamMembers) {
+        const uid = tm.user.id;
+        if (!lawyerMap[uid]) lawyerMap[uid] = { name: tm.user.name ?? 'Unknown', email: tm.user.email, count: 0 };
+        lawyerMap[uid].count++;
+      }
+    }
+    const topLawyers = Object.values(lawyerMap)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const slaPerformancePct = totalWithSla > 0
+      ? Math.round(((totalWithSla - totalEscalated) / totalWithSla) * 100)
+      : 100;
+
+    return NextResponse.json({
+      trend,
+      topTypes,
+      topLawyers,
+      slaPerformancePct,
+      totalEscalated,
+      totalWithSla,
+      periodMonths: 6,
+    });
   }
 
   const caseId = rest[0];

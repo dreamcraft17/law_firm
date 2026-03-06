@@ -356,13 +356,14 @@ export const adminEndpoints = {
 
   // Reports (W6)
   reportsDashboard: () => `${ApiPaths.reports}/dashboard`,
-  reportsSlaBreach: (params?: { from?: string; to?: string }) => {
+  reportsSlaBreach: (params?: { from?: string; to?: string; format?: 'json' | 'csv' }) => {
     const base = `${ApiPaths.reports}/sla-breach`;
-    if (!params?.from && !params?.to) return base;
     const q = new URLSearchParams();
-    if (params.from) q.set('from', params.from);
-    if (params.to) q.set('to', params.to);
-    return `${base}?${q.toString()}`;
+    if (params?.from) q.set('from', params.from);
+    if (params?.to) q.set('to', params.to);
+    if (params?.format) q.set('format', params.format);
+    const query = q.toString();
+    return query ? `${base}?${query}` : base;
   },
   reportsExport: (type: string) => `${ApiPaths.reports}/export/${type}`,
 

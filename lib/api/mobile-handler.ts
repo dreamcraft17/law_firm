@@ -11,6 +11,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthFromRequest, createSession } from '@/lib/auth-helper';
+import { getRateLimitKey, rateLimit } from '@/lib/rate-limit';
 import { runConflictCheck, saveConflictSnapshot } from '@/lib/conflict-check';
 import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-response';
 
@@ -193,6 +194,11 @@ async function handleAuth(
     }, { status: 201 });
   }
   if (action === 'login' && method === 'POST') {
+    const key = getRateLimitKey(request, 'mobile_login');
+    const { allowed } = rateLimit(key, { max: 10, windowMs: 60 * 1000 });
+    if (!allowed) {
+      return NextResponse.json({ error: 'Terlalu banyak percobaan login. Coba lagi nanti.' }, { status: 429 });
+    }
     let body: { email?: string; password?: string } = {};
     try {
       body = await request.json();
@@ -208,6 +214,7 @@ async function handleAuth(
       where: { email, deletedAt: null },
     });
     if (!user) {
+      await prisma.auditLog.create({ data: { action: 'login_failed', entity: 'user', details: { email, reason: 'user_not_found' } } }).catch(() => {});
       return NextResponse.json({ error: 'Kredensial tidak valid' }, { status: 401 });
     }
     if (!user.passwordHash) {

@@ -24,6 +24,27 @@ export default function SlaBreachReportPage() {
   const [error, setError] = useState<string | null>(null);
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportCsv = async () => {
+    setExporting(true);
+    try {
+      const url = adminEndpoints.reportsSlaBreach({ from: filterFrom || undefined, to: filterTo || undefined, format: 'csv' });
+      const res = await adminFetch(url);
+      if (!res.ok) throw new Error(res.statusText);
+      const text = await res.text();
+      const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `sla-breach-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Gagal export');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -66,7 +87,7 @@ export default function SlaBreachReportPage() {
       <p className="text-sm text-gray-600 mb-4">
         Daftar perkara yang telah melewati batas SLA (escalated). Filter opsional menurut tanggal escalasi.
       </p>
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4 items-end">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Dari</label>
           <input
@@ -85,9 +106,17 @@ export default function SlaBreachReportPage() {
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
           />
         </div>
-        <div className="flex items-end">
+        <div className="flex gap-2">
           <button type="button" onClick={() => load()} className="px-4 py-2 bg-[#1B4965] text-white rounded-lg text-sm hover:opacity-90">
             Muat ulang
+          </button>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={exporting}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:opacity-90 disabled:opacity-50 inline-flex items-center"
+          >
+            {exporting ? '...' : 'Export CSV'}
           </button>
         </div>
       </div>
