@@ -44,7 +44,7 @@ export function getRateLimitKey(request: Request, prefix: string): string {
 /** Clean old entries periodically to avoid memory leak (optional). */
 export function cleanExpiredRateLimits(): void {
   const now = Date.now();
-  for (const [k, v] of store.entries()) {
+  Array.from(store.entries()).forEach(([k, v]) => {
     if (now >= v.resetAt) store.delete(k);
-  }
+  });
 }
