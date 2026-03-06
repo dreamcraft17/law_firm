@@ -21,6 +21,14 @@
   --border: #334155;
 }
 
+/* Area konten panel: selalu tema terang (bg putih, tulisan hitam) */
+.panel-content-light {
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border: #e2e8f0;
+  --surface-card: #ffffff;
+}
+
 body {
   @apply antialiased;
   background-color: var(--surface);
