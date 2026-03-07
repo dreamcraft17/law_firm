@@ -1150,6 +1150,25 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
       if (body.slaPausedReason !== undefined || body.sla_paused_reason !== undefined) data.slaPausedReason = (body.slaPausedReason ?? body.sla_paused_reason)?.trim() || null;
       if (body.budgetAmount !== undefined) data.budgetAmount = body.budgetAmount != null ? Number(body.budgetAmount) : null;
       if (body.budgetHours !== undefined) data.budgetHours = body.budgetHours != null ? Number(body.budgetHours) : null;
+      // P5: Auto SLA pause bila stage atau status = "Menunggu Respon Klien" / "On Hold"
+      const SLA_AUTO_PAUSE_STAGES = ['menunggu_respon_klien', 'waiting_client', 'waiting_for_client', 'on_hold'];
+      const SLA_AUTO_PAUSE_STATUSES = ['waiting_for_client', 'on_hold', 'menunggu_respon_klien'];
+      if (body.slaPaused !== false && body.sla_pause !== false) {
+        if (data.stage !== undefined) {
+          const stageNorm = data.stage.toLowerCase().replace(/\s+/g, '_').trim();
+          if (SLA_AUTO_PAUSE_STAGES.includes(stageNorm) || stageNorm.includes('menunggu_respon') || stageNorm.includes('waiting')) {
+            data.slaPaused = true;
+            data.slaPausedReason = data.slaPausedReason ?? 'Otomatis: Menunggu respon klien';
+          }
+        }
+        if (data.status !== undefined) {
+          const statusNorm = data.status.toLowerCase().replace(/\s+/g, '_').trim();
+          if (SLA_AUTO_PAUSE_STATUSES.includes(statusNorm) || statusNorm.includes('waiting') || statusNorm.includes('on_hold')) {
+            data.slaPaused = true;
+            data.slaPausedReason = data.slaPausedReason ?? 'Otomatis: ' + (statusNorm.includes('hold') ? 'On hold' : 'Menunggu respon klien');
+          }
+        }
+      }
       const updateData: Prisma.CaseUpdateInput = {};
       if (data.title !== undefined) updateData.title = data.title;
       if (data.status !== undefined) updateData.status = data.status;
@@ -1170,9 +1189,22 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
         updateData.slaPausedAt = null;
         updateData.slaPausedReason = null;
       }
+      // P5 Resume: bila status/stage kembali ke Active, clear pause dan geser sla_due_date dengan selisih waktu jeda
+      const newStage = data.stage !== undefined ? data.stage : existing.stage;
+      const newStatus = data.status !== undefined ? data.status : existing.status;
+      const activeStage = newStage?.toLowerCase().replace(/\s+/g, '_').trim() === 'active';
+      const activeStatus = ['active', 'open', 'aktif'].includes(newStatus?.toLowerCase().trim() ?? '');
+      if ((activeStage || activeStatus) && existing.slaPausedAt && existing.slaDueDate) {
+        updateData.slaPausedAt = null;
+        updateData.slaPausedReason = null;
+        const pauseDurationMs = Date.now() - existing.slaPausedAt.getTime();
+        const newDue = new Date(existing.slaDueDate.getTime() + pauseDurationMs);
+        updateData.slaDueDate = newDue;
+      }
       if (data.budgetAmount !== undefined) updateData.budgetAmount = data.budgetAmount;
       if (data.budgetHours !== undefined) updateData.budgetHours = data.budgetHours;
-      if (data.caseType !== undefined && data.caseType) {
+      const didResumeSla = (activeStage || activeStatus) && existing.slaPausedAt && existing.slaDueDate;
+      if (data.caseType !== undefined && data.caseType && !didResumeSla) {
         const sla = await getSlaDueFromRule(existing.firmId, data.caseType, existing.createdAt, existing.stageChangedAt, existing.stage);
         if (sla) updateData.slaDueDate = sla.slaDueDate;
         else if (data.caseType === null) updateData.slaDueDate = null;
@@ -1484,6 +1516,14 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
     if (caseType) {
       const sla = await getSlaDueFromRule(firmId, caseType, c.createdAt);
       if (sla) await prisma.case.update({ where: { id: c.id }, data: { slaDueDate: sla.slaDueDate } });
+    }
+    const createdStage = (body.stage?.trim() ?? 'intake').toLowerCase().replace(/\s+/g, '_');
+    const autoPauseStages = ['menunggu_respon_klien', 'waiting_client', 'waiting_for_client', 'on_hold'];
+    if (autoPauseStages.includes(createdStage) || createdStage.includes('menunggu_respon') || createdStage.includes('waiting')) {
+      await prisma.case.update({
+        where: { id: c.id },
+        data: { slaPausedAt: new Date(), slaPausedReason: 'Otomatis: Menunggu respon klien' },
+      });
     }
     await prisma.auditLog.create({ data: { action: 'create', entity: 'case', entityId: c.id, details: { title: c.title } } }).catch(() => {});
     const out = await prisma.case.findFirst({ where: { id: c.id }, include: { client: true } });

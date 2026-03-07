@@ -27,9 +27,43 @@ function diceSimilarity(a: string, b: string): number {
   return (2 * intersection) / (a.length - 1 + (b.length - 1));
 }
 
+/** Levenshtein edit distance (untuk typo: Budi vs Budy, Ahmad vs Ahmud). */
+function levenshtein(a: string, b: string): number {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const dp: number[] = new Array(rows * cols);
+  for (let i = 0; i <= a.length; i++) dp[i * cols] = i;
+  for (let j = 0; j <= b.length; j++) dp[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i * cols + j] = Math.min(
+        dp[(i - 1) * cols + j] + 1,
+        dp[i * cols + (j - 1)] + 1,
+        dp[(i - 1) * cols + (j - 1)] + cost
+      );
+    }
+  }
+  return dp[rows * cols - 1];
+}
+
+/** Fuzzy match: ejaan mirip (Budi/Budy) atau substring. Threshold 0.65 + edit distance untuk nama pendek. */
+const DICE_THRESHOLD = 0.65;
+const MAX_EDIT_RATIO_SHORT = 0.35; // untuk nama <= 8 karakter, max edit distance ratio
+
 function namesConflict(a: string, b: string): boolean {
   if (!a || !b) return false;
-  return a.includes(b) || b.includes(a) || diceSimilarity(a, b) >= 0.8;
+  if (a.includes(b) || b.includes(a)) return true;
+  const sim = diceSimilarity(a, b);
+  if (sim >= DICE_THRESHOLD) return true;
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen <= 8) {
+    const dist = levenshtein(a, b);
+    if (dist <= 2 && dist / maxLen <= MAX_EDIT_RATIO_SHORT) return true;
+  }
+  return false;
 }
 
 export type ConflictItem = { caseId: string; title: string; reason: string; matchedName?: string; similarity?: number };

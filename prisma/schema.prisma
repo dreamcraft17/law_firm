@@ -169,6 +169,8 @@ model User {
   documentsCheckedOut  Document[]  @relation("DocumentCheckedOut")
   documentVersionsUploaded DocumentVersion[]
   passwordHistory   PasswordHistory[]
+  disbursementsCreated CaseDisbursement[]
+  calendarConnections UserCalendarConnection[]
 
   @@map("users")
 }
@@ -183,6 +185,23 @@ model PasswordHistory {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("password_history")
+}
+
+// --- Calendar sync (Google/Outlook): OAuth tokens per user ---
+model UserCalendarConnection {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  provider     String    @db.VarChar(32) // google | outlook
+  accessToken  String?   @map("access_token") @db.Text
+  refreshToken String?   @map("refresh_token") @db.Text
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@map("user_calendar_connections")
 }
 
 // --- M1: Client Management ---
@@ -273,6 +292,7 @@ model Case {
   conflictOverride   CaseConflictOverride?
   conflictSnapshot  CaseConflictSnapshot?
   slaRemindersSent  SlaReminderSent[]
+  disbursements     CaseDisbursement[]
 
   @@map("cases")
 }
@@ -535,20 +555,21 @@ model SavedView {
 }
 
 model Event {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  firmId          String?   @map("firm_id") @db.Uuid
-  title           String    @db.VarChar(500)
-  startAt         DateTime  @map("start_at") @db.Timestamptz(6)
-  endAt           DateTime? @map("end_at") @db.Timestamptz(6)
-  type            String?   @db.VarChar(64) // consultation | meeting | etc
-  leadId          String?   @map("lead_id") @db.Uuid
-  caseId          String?   @map("case_id") @db.Uuid
-  taskId          String?   @map("task_id") @db.Uuid
-  location        String?   @db.VarChar(500)
-  reminderMinutes Int?      @map("reminder_minutes") @db.SmallInt
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firmId           String?   @map("firm_id") @db.Uuid
+  title            String    @db.VarChar(500)
+  startAt          DateTime  @map("start_at") @db.Timestamptz(6)
+  endAt            DateTime? @map("end_at") @db.Timestamptz(6)
+  type             String?   @db.VarChar(64) // consultation | meeting | etc
+  leadId           String?   @map("lead_id") @db.Uuid
+  caseId           String?   @map("case_id") @db.Uuid
+  taskId           String?   @map("task_id") @db.Uuid
+  location         String?   @db.VarChar(500)
+  reminderMinutes  Int?      @map("reminder_minutes") @db.SmallInt
+  providerEventId  String?   @map("provider_event_id") @db.VarChar(255)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   lead    Lead?  @relation(fields: [leadId], references: [id])
   case_   Case?  @relation(fields: [caseId], references: [id])
@@ -648,6 +669,7 @@ model Invoice {
   client         Client?        @relation(fields: [clientId], references: [id])
   timeEntries    TimeEntry[]
   expenses       CaseExpense[]
+  disbursements  CaseDisbursement[]
   creditNotes    CreditNote[]
   paymentExports PaymentExport[]
 
@@ -799,6 +821,41 @@ model CaseExpense {
   invoice Invoice? @relation(fields: [invoiceId], references: [id])
 
   @@map("case_expenses")
+}
+
+// --- Disbursements & Expenses: kategori + transaksi per perkara ---
+model ExpenseCategory {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @db.VarChar(100)
+  description String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active") @db.Boolean
+
+  disbursements CaseDisbursement[]
+
+  @@map("expense_categories")
+}
+
+model CaseDisbursement {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  caseId      String    @map("case_id") @db.Uuid
+  categoryId  String?   @map("category_id") @db.Uuid
+  amount      Decimal   @db.Decimal(15, 2)
+  taxAmount   Decimal   @default(0) @map("tax_amount") @db.Decimal(15, 2)
+  totalAmount Decimal   @map("total_amount") @db.Decimal(15, 2)
+  description String?   @db.Text
+  receiptUrl  String?   @map("receipt_url") @db.Text
+  spentAt     DateTime  @map("spent_at") @db.Date
+  status      String    @default("pending") @db.VarChar(20)
+  createdById String?   @map("created_by") @db.Uuid
+  invoiceId   String?   @map("invoice_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  case_     Case           @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  category  ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  createdBy User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  invoice   Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@map("case_disbursements")
 }
 
 model Notification {
