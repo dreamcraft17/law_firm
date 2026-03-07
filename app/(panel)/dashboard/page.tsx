@@ -245,7 +245,7 @@ export default function DashboardPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                       <XAxis type="number" tick={{ fontSize: 12, fill: '#64748b' }} />
                       <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12, fill: '#475569' }} />
-                      <Tooltip cursor={{ fill: 'rgba(0,0,0,0.04)' }} formatter={(v: number) => [v, 'Jumlah']} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                      <Tooltip cursor={{ fill: 'rgba(0,0,0,0.04)' }} formatter={(v: number | undefined) => [v ?? 0, 'Jumlah']} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
                       <Bar dataKey="jumlah" radius={[0, 4, 4, 0]} maxBarSize={36} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -278,7 +278,7 @@ export default function DashboardPage() {
                           <Cell key={i} fill={entry.fill} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(v: number, name: string) => [v, name]} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                      <Tooltip formatter={(v: number | undefined, name: string) => [v ?? 0, name]} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -297,7 +297,7 @@ export default function DashboardPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                       <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v) => (v >= 1e6 ? `${(v / 1e6).toFixed(0)}Jt` : String(v))} />
                       <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11, fill: '#475569' }} />
-                      <Tooltip formatter={(v: number) => [formatRp(v), 'Revenue']} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                      <Tooltip formatter={(v: number | undefined) => [formatRp(v ?? 0), 'Revenue']} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
                       <Bar dataKey="revenue" fill="#1e3a8a" radius={[0, 4, 4, 0]} maxBarSize={28} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -317,7 +317,7 @@ export default function DashboardPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                       <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
                       <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v) => (v >= 1e6 ? `${(v / 1e6).toFixed(0)}Jt` : String(v))} />
-                      <Tooltip formatter={(v: number) => [formatRp(v), 'Jumlah']} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                      <Tooltip formatter={(v: number | undefined) => [formatRp(v ?? 0), 'Jumlah']} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
                       <Bar dataKey="jumlah" radius={[4, 4, 0, 0]} maxBarSize={48}>
                         {agingData.map((entry, i) => (
                           <Cell key={i} fill={entry.fill} />
