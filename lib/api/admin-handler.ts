@@ -334,7 +334,7 @@ async function handleAdminAuthLogin(request: NextRequest): Promise<NextResponse>
       { status: 429, headers: { 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': String(Math.ceil(resetAt / 1000)) } }
     );
   }
-  let body: { email?: string; password?: string; totpCode?: string } = {};
+  let body: { email?: string; password?: string; totpCode?: string; remember_me?: boolean; rememberMe?: boolean } = {};
   try {
     body = await request.json();
   } catch {
@@ -342,6 +342,7 @@ async function handleAdminAuthLogin(request: NextRequest): Promise<NextResponse>
   }
   const email = body.email?.trim()?.toLowerCase();
   const password = body.password;
+  const rememberMe = Boolean(body.remember_me ?? body.rememberMe);
   if (!email || !password) {
     return NextResponse.json({ error: 'email dan password wajib' }, { status: 400 });
   }
@@ -380,7 +381,7 @@ async function handleAdminAuthLogin(request: NextRequest): Promise<NextResponse>
   }
   await prisma.auditLog.create({ data: { userId: user.id, action: 'login', entity: 'user', entityId: user.id, details: { email: user.email } } }).catch(() => {});
   const device = getDeviceFromRequest(request);
-  const token = await createSession(user.id, 'admin', undefined, device);
+  const token = await createSession(user.id, 'admin', undefined, device, rememberMe);
   const permissions = user.roleRef?.permissions?.map((rp) => rp.permission.key) ?? [];
   return NextResponse.json({
     access_token: token,

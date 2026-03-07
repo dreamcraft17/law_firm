@@ -6,6 +6,7 @@ import { prisma } from '@/lib/db';
 import { NextRequest } from 'next/server';
 
 const SESSION_EXPIRY_DAYS = 30;
+const SESSION_REMEMBER_ME_DAYS = 90;
 const SESSION_MAX_CONCURRENT = 5;
 
 export type AuthUser = {
@@ -75,11 +76,13 @@ export async function createSession(
   userId: string,
   source: 'admin' | 'mobile',
   refreshToken?: string,
-  device?: { userAgent?: string; deviceId?: string; deviceLabel?: string; ipAddress?: string }
+  device?: { userAgent?: string; deviceId?: string; deviceLabel?: string; ipAddress?: string },
+  rememberMe?: boolean
 ): Promise<string> {
   const now = new Date();
+  const expiryDays = rememberMe ? SESSION_REMEMBER_ME_DAYS : SESSION_EXPIRY_DAYS;
   const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + SESSION_EXPIRY_DAYS);
+  expiresAt.setDate(expiresAt.getDate() + expiryDays);
   const existing = await prisma.session.findMany({
     where: { userId, source, expiresAt: { gt: now } },
     orderBy: { createdAt: 'asc' },
@@ -97,6 +100,7 @@ export async function createSession(
       token,
       source,
       expiresAt,
+      rememberMe: rememberMe ?? false,
       refreshToken: refreshToken ?? null,
       userAgent: device?.userAgent?.slice(0, 500) ?? null,
       deviceId: device?.deviceId ?? null,

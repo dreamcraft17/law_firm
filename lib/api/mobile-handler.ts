@@ -199,7 +199,7 @@ async function handleAuth(
     if (!allowed) {
       return NextResponse.json({ error: 'Terlalu banyak percobaan login. Coba lagi nanti.' }, { status: 429 });
     }
-    let body: { email?: string; password?: string } = {};
+    let body: { email?: string; password?: string; remember_me?: boolean; rememberMe?: boolean } = {};
     try {
       body = await request.json();
     } catch {
@@ -207,6 +207,7 @@ async function handleAuth(
     }
     const email = body.email?.trim()?.toLowerCase();
     const password = body.password;
+    const rememberMe = Boolean(body.remember_me ?? body.rememberMe);
     if (!email || !password) {
       return NextResponse.json({ error: 'email dan password wajib' }, { status: 400 });
     }
@@ -227,7 +228,8 @@ async function handleAuth(
     }
     await prisma.auditLog.create({ data: { userId: user.id, action: 'login', entity: 'user', entityId: user.id, details: { email: user.email } } }).catch(() => {});
     const refreshToken = `mobile_refresh_${crypto.randomBytes(24).toString('hex')}`;
-    const token = await createSession(user.id, 'mobile', refreshToken);
+    const device = request.headers.get('user-agent') ? { userAgent: request.headers.get('user-agent') ?? undefined } : undefined;
+    const token = await createSession(user.id, 'mobile', refreshToken, device, rememberMe);
     const userWithRole = await prisma.user.findFirst({
       where: { id: user.id },
       include: { roleRef: { include: { permissions: { include: { permission: true } } } } },

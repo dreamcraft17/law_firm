@@ -127,6 +127,7 @@ model Session {
   ipAddress    String?   @map("ip_address") @db.VarChar(64)
   lastActiveAt DateTime? @map("last_active_at") @db.Timestamptz(6)
   expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+  rememberMe   Boolean   @default(false) @map("remember_me") @db.Boolean
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
