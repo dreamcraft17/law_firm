@@ -391,7 +391,7 @@ async function handleAdminAuthLogin(request: NextRequest): Promise<NextResponse>
   });
 }
 
-async function handleAuthTotp(rest: string[], method: string, _request: NextRequest, auth: AuthUser): Promise<NextResponse | null> {
+async function handleAuthTotp(rest: string[], method: string, request: NextRequest, auth: AuthUser): Promise<NextResponse | null> {
   const sub = rest[0];
   if (sub === 'me' && method === 'GET') {
     return NextResponse.json({ ok: true, userId: auth.userId });
