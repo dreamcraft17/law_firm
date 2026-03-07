@@ -121,6 +121,7 @@ export const adminEndpoints = {
 
   // Auth (R0.1) + 2FA
   authLogin: () => `${ApiPaths.auth}/login`,
+  authMe: () => `${ApiPaths.auth}/me`,
   authTotpSetup: () => `${ApiPaths.auth}/totp/setup`,
   authTotpEnable: () => `${ApiPaths.auth}/totp/enable`,
   authTotpDisable: () => `${ApiPaths.auth}/totp/disable`,

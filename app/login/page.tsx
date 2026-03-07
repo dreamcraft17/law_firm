@@ -25,7 +25,30 @@ export default function LoginPage() {
       setEmail(saved);
       setRememberMe(true);
     }
-  }, []);
+    const token = localStorage.getItem('admin_token');
+    if (!token) return;
+    fetch(`${apiBaseUrl}/${adminEndpoints.authMe()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => {
+        if (res.ok) {
+          router.replace('/dashboard');
+        } else {
+          try {
+            localStorage.removeItem('admin_token');
+            localStorage.removeItem('admin_permissions');
+            localStorage.removeItem('admin_roleId');
+          } catch (_) {}
+        }
+      })
+      .catch(() => {
+        try {
+          localStorage.removeItem('admin_token');
+          localStorage.removeItem('admin_permissions');
+          localStorage.removeItem('admin_roleId');
+        } catch (_) {}
+      });
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
