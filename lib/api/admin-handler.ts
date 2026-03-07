@@ -2904,6 +2904,10 @@ async function handleReports(rest: string[], method: string, request: NextReques
     return NextResponse.json({ data: cases, total });
   }
 
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  sixMonthsAgo.setHours(0, 0, 0, 0);
+
   const [
     caseCount,
     closedCases,
@@ -2918,6 +2922,8 @@ async function handleReports(rest: string[], method: string, request: NextReques
     closedCasesForDuration,
     leadCounts,
     usersForRevenue,
+    invoicesLast6Months,
+    casesLast6Months,
   ] = await Promise.all([
     prisma.case.count({ where: { deletedAt: null } }),
     prisma.case.count({ where: { deletedAt: null, status: 'closed' } }),
@@ -2959,6 +2965,14 @@ async function handleReports(rest: string[], method: string, request: NextReques
     prisma.user.findMany({
       where: { deletedAt: null, role: { not: 'client' } },
       select: { id: true, name: true },
+    }),
+    prisma.invoice.findMany({
+      where: { deletedAt: null, status: { notIn: ['draft', 'void'] }, createdAt: { gte: sixMonthsAgo } },
+      select: { amount: true, createdAt: true },
+    }),
+    prisma.case.findMany({
+      where: { deletedAt: null, createdAt: { gte: sixMonthsAgo } },
+      select: { id: true, createdAt: true },
     }),
   ]);
 
@@ -3095,6 +3109,39 @@ async function handleReports(rest: string[], method: string, request: NextReques
     totalLeads,
   };
 
+  // Bulanan 6 bulan terakhir: revenue & jumlah perkara baru
+  const monthKeys: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  const monthlyRevenue: Record<string, number> = Object.fromEntries(monthKeys.map((k) => [k, 0]));
+  const monthlyCases: Record<string, number> = Object.fromEntries(monthKeys.map((k) => [k, 0]));
+  for (const inv of invoicesLast6Months) {
+    const y = inv.createdAt.getFullYear();
+    const m = String(inv.createdAt.getMonth() + 1).padStart(2, '0');
+    const key = `${y}-${m}`;
+    if (key in monthlyRevenue) monthlyRevenue[key] += Number(inv.amount);
+  }
+  for (const c of casesLast6Months) {
+    const y = c.createdAt.getFullYear();
+    const m = String(c.createdAt.getMonth() + 1).padStart(2, '0');
+    const key = `${y}-${m}`;
+    if (key in monthlyCases) monthlyCases[key]++;
+  }
+  const monthlyTrend = monthKeys.map((key) => {
+    const [y, m] = key.split('-');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    return {
+      key,
+      label: `${monthNames[parseInt(m, 10) - 1]} ${y}`,
+      bulan: monthNames[parseInt(m, 10) - 1],
+      revenue: Math.round(monthlyRevenue[key] * 100) / 100,
+      perkara: monthlyCases[key],
+    };
+  });
+
   if (rest[0] === 'dashboard') {
     return NextResponse.json({
       summary,
@@ -3102,6 +3149,7 @@ async function handleReports(rest: string[], method: string, request: NextReques
       taskBreakdown,
       finance,
       operational,
+      monthlyTrend,
       data: [],
     });
   }
