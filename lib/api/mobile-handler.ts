@@ -924,9 +924,20 @@ async function handleSearch(_rest: string[], method: string, request: NextReques
       },
       take,
       orderBy: { updatedAt: 'desc' },
-      include: { client: { select: { id: true, name: true } } },
+      select: {
+        id: true,
+        title: true,
+        caseNumber: true,
+        description: true,
+        status: true,
+        clientId: true,
+        createdAt: true,
+        updatedAt: true,
+        deletedAt: true,
+        client: { select: { id: true, name: true } },
+      },
     });
-    results.cases = cases.map((c) => ({ ...normalizeCaseForResponse(c), client: c.client }));
+    results.cases = cases.map((c) => ({ ...normalizeCaseForResponse(c as Parameters<typeof normalizeCaseForResponse>[0]), client: c.client }));
   }
   if (types.includes('document')) {
     const docWhere: Prisma.DocumentWhereInput = {
@@ -1117,9 +1128,20 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
           where: baseWhere,
           orderBy: { createdAt: 'desc' },
           take: 100,
-          include: { client: true },
+          select: {
+            id: true,
+            title: true,
+            caseNumber: true,
+            description: true,
+            status: true,
+            clientId: true,
+            createdAt: true,
+            updatedAt: true,
+            deletedAt: true,
+            client: { select: { id: true, name: true, type: true } },
+          },
         });
-        return NextResponse.json({ data: normalizeCaseListForResponse(list) });
+        return NextResponse.json({ data: normalizeCaseListForResponse(list as Parameters<typeof normalizeCaseListForResponse>[0]) });
       } catch (error) {
         console.error('Error fetching cases:', error);
         return NextResponse.json(
@@ -1723,25 +1745,43 @@ async function handleDashboard(rest: string[], method: string, request: NextRequ
   if (method !== 'GET') return methodNotAllowed();
   const auth = await getAuthFromRequest(request, 'mobile');
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const sub = rest[0];
+  const onlySummary = sub === 'summary';
+  const onlyActivity = sub === 'activity';
+
   if (auth.clientId) {
     const [caseCount, invCount, cases] = await Promise.all([
       prisma.case.count({ where: { clientId: auth.clientId, deletedAt: null } }),
       prisma.invoice.count({ where: { clientId: auth.clientId, deletedAt: null } }),
-      prisma.case.findMany({ where: { clientId: auth.clientId, deletedAt: null }, orderBy: { updatedAt: 'desc' }, take: 10 }),
+      prisma.case.findMany({
+        where: { clientId: auth.clientId, deletedAt: null },
+        orderBy: { updatedAt: 'desc' },
+        take: 10,
+        select: { id: true, title: true, updatedAt: true, stage: true },
+      }),
     ]);
-    return NextResponse.json({
-      summary: { totalCases: caseCount, totalInvoices: invCount },
-      activity: cases.map((a) => ({ id: a.id, title: a.title, updatedAt: a.updatedAt, stage: a.stage })),
-    });
+    const summaryPayload = { totalCases: caseCount, totalInvoices: invCount, active_cases: caseCount, invoice_count: invCount };
+    const activityPayload = cases.map((a) => ({ id: a.id, title: a.title, updatedAt: a.updatedAt, updated_at: a.updatedAt, stage: a.stage }));
+    if (onlySummary) return NextResponse.json(summaryPayload);
+    if (onlyActivity) return NextResponse.json(activityPayload);
+    return NextResponse.json({ summary: summaryPayload, activity: activityPayload });
   }
-  const [summary, activity] = await Promise.all([
+
+  const [totalCases, cases] = await Promise.all([
     prisma.case.count({ where: { deletedAt: null } }),
-    prisma.case.findMany({ where: { deletedAt: null }, orderBy: { updatedAt: 'desc' }, take: 10 }),
+    prisma.case.findMany({
+      where: { deletedAt: null },
+      orderBy: { updatedAt: 'desc' },
+      take: 10,
+      select: { id: true, title: true, updatedAt: true, stage: true },
+    }),
   ]);
-  return NextResponse.json({
-    summary: { totalCases: summary },
-    activity: activity.map((a) => ({ id: a.id, title: a.title, updatedAt: a.updatedAt })),
-  });
+  const summaryPayload = { totalCases, active_cases: totalCases };
+  const activityPayload = cases.map((a) => ({ id: a.id, title: a.title, updatedAt: a.updatedAt, updated_at: a.updatedAt, stage: a.stage }));
+  if (onlySummary) return NextResponse.json(summaryPayload);
+  if (onlyActivity) return NextResponse.json(activityPayload);
+  return NextResponse.json({ summary: summaryPayload, activity: activityPayload });
 }
 
 async function handleNotifications(rest: string[], method: string, request: NextRequest): Promise<NextResponse> {
