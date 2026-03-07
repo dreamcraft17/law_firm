@@ -278,7 +278,7 @@ export default function DashboardPage() {
                           <Cell key={i} fill={entry.fill} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(v: number | undefined, name: string) => [v ?? 0, name]} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                      <Tooltip formatter={(v: number | undefined, name: string | undefined) => [v ?? 0, name ?? '']} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
