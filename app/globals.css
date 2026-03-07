@@ -48,3 +48,39 @@ body {
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(59, 130, 246, 0.5);
 }
+
+/* Loading bar (untuk loading.tsx & TopLoadingBar) */
+@keyframes loading-bar-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+@keyframes loading-bar-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.global-loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 9999;
+  background: linear-gradient(90deg, transparent 0%, var(--corporate, #1e3a8a) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: loading-bar-shimmer 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.global-loading-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(59, 130, 246, 0.6) 50%, transparent 100%);
+  animation: loading-bar-shimmer 1.2s ease-in-out infinite 0.15s;
+  opacity: 0.8;
+}
