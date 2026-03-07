@@ -75,20 +75,20 @@ export default function LoginPage() {
           <div className="mt-16">
             <div className="inline-flex items-center gap-2 bg-white/10 border border-white/15 rounded-full px-4 py-1.5 mb-6">
               <span className="w-2 h-2 rounded-full bg-blue-300 animate-pulse" />
-              <span className="text-blue-200 text-xs font-medium tracking-wide">Sistem Manajemen Terpadu</span>
+              <span className="text-blue-200 text-xs font-medium tracking-wide">Satu platform operasional firma</span>
             </div>
             <h2 className="text-3xl font-bold text-white tracking-tight leading-snug">
-              Admin Panel<br />
-              <span className="text-blue-200">Profesional</span>
+              Panel Operasional<br />
+              <span className="text-blue-200">untuk Tim Firma</span>
             </h2>
             <p className="mt-4 text-blue-100/80 text-[15px] leading-relaxed max-w-sm">
-              Kelola perkara, billing, dan laporan dalam satu dashboard terpadu.
+              Perkara, keuangan, dan laporan dalam satu dashboard.
             </p>
             <ul className="mt-8 space-y-4">
               {[
-                { icon: Shield, text: 'Akses aman & terenkripsi' },
-                { icon: BarChart3, text: 'Reporting & analytics real-time' },
-                { icon: FileCheck, text: 'Manajemen dokumen terpusat' },
+                { icon: Shield, text: 'Keamanan & enkripsi data' },
+                { icon: BarChart3, text: 'Laporan dan analitik real-time' },
+                { icon: FileCheck, text: 'Dokumen dan arsip terpusat' },
               ].map(({ icon: Icon, text }) => (
                 <li key={text} className="flex items-center gap-3 text-blue-100 text-sm">
                   <span className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center shrink-0">
@@ -140,8 +140,8 @@ export default function LoginPage() {
                   <Shield className="w-4 h-4 text-white" strokeWidth={2} />
                 </div>
               </div>
-              <h2 className="text-xl font-bold text-slate-800 tracking-tight">Masuk ke Admin</h2>
-              <p className="text-slate-500 text-sm mt-1">Gunakan akun Anda untuk mengakses dashboard</p>
+              <h2 className="text-xl font-bold text-slate-800 tracking-tight">Masuk ke Panel</h2>
+              <p className="text-slate-500 text-sm mt-1">Masukkan email dan kata sandi untuk mengakses dashboard</p>
             </div>
 
             {error && (
@@ -202,7 +202,7 @@ export default function LoginPage() {
             </form>
 
             <p className="mt-6 text-center text-slate-400 text-xs">
-              Hubungi administrator jika Anda lupa kredensial.
+              Lupa kata sandi? Hubungi administrator.
             </p>
           </div>
         </div>
