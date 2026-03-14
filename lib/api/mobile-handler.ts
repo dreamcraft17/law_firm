@@ -61,6 +61,27 @@ const notificationSelect = {
   createdAt: true,
 } as const;
 
+// Invoice select: omit payment_url until migration is run
+const invoiceSelect = {
+  id: true,
+  firmId: true,
+  invoiceNumber: true,
+  status: true,
+  amount: true,
+  paidAmount: true,
+  writeOffAmount: true,
+  writeOffReason: true,
+  writeOffAt: true,
+  taxRate: true,
+  currency: true,
+  clientId: true,
+  dueDate: true,
+  retainerDrawdownAmount: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+} as const;
+
 function normalizeForConflict(s: string): string {
   return s.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -1767,13 +1788,17 @@ async function handleInvoices(rest: string[], method: string, _request: NextRequ
   const id = rest[0];
   if (id) {
     if (method === 'GET') {
-      const i = await prisma.invoice.findFirst({ where: { id, deletedAt: null } });
+      const i = await prisma.invoice.findFirst({ where: { id, deletedAt: null }, select: invoiceSelect });
       return i ? NextResponse.json(i) : NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
     if (rest[1] === 'pay' && method === 'POST') {
-      const inv = await prisma.invoice.findFirst({ where: { id, deletedAt: null } });
+      const inv = await prisma.invoice.findFirst({ where: { id, deletedAt: null }, select: invoiceSelect });
       if (!inv) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      const updated = await prisma.invoice.update({ where: { id }, data: { status: 'paid' } });
+      const updated = await prisma.invoice.update({
+        where: { id },
+        data: { status: 'paid' },
+        select: invoiceSelect,
+      });
       return NextResponse.json(updated);
     }
     return methodNotAllowed();
@@ -1782,6 +1807,7 @@ async function handleInvoices(rest: string[], method: string, _request: NextRequ
     const list = await prisma.invoice.findMany({
       where: { deletedAt: null },
       take: 100,
+      select: invoiceSelect,
     });
     return NextResponse.json({ data: list });
   }
