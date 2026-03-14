@@ -18,6 +18,40 @@ import { normalizeCaseForResponse, normalizeCaseListForResponse } from './case-r
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const AVATAR_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
+// Document select: omit esign_doc_hash / esign_locked_at until migration is run
+const documentSelectBase = {
+  id: true,
+  firmId: true,
+  caseId: true,
+  name: true,
+  fileUrl: true,
+  folder: true,
+  version: true,
+  clientVisible: true,
+  checkedOutById: true,
+  checkedOutAt: true,
+  esignEnvelopeId: true,
+  esignStatus: true,
+  esignSignedAt: true,
+  permissionPolicy: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+} as const;
+const documentSelectWithCase = {
+  ...documentSelectBase,
+  case: { select: { id: true, title: true, caseNumber: true } as const },
+} as const;
+const documentSelectWithCheckedOut = {
+  ...documentSelectBase,
+  checkedOutByUser: { select: { id: true, name: true } as const },
+} as const;
+const documentSelectWithCaseAndCheckedOut = {
+  ...documentSelectBase,
+  case: { select: { id: true, title: true, caseNumber: true } as const },
+  checkedOutByUser: { select: { id: true, name: true } as const },
+} as const;
+
 function normalizeForConflict(s: string): string {
   return s.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -950,7 +984,7 @@ async function handleSearch(_rest: string[], method: string, request: NextReques
       where: docWhere,
       take,
       orderBy: { updatedAt: 'desc' },
-      include: { case: { select: { id: true, title: true, caseNumber: true } } },
+      select: documentSelectWithCase,
     });
     results.documents = documents;
   }
@@ -1524,14 +1558,14 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
         deletedAt: null,
         ...(isClient ? { clientVisible: true } : {}),
       },
-      include: { checkedOutByUser: { select: { id: true, name: true } } },
+      select: documentSelectWithCheckedOut,
     });
     return NextResponse.json({ data: list });
   }
   const id = rest[0];
   if (id && id !== 'case') {
     if (rest[1] === 'check-out' && method === 'POST') {
-      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null }, select: documentSelectBase });
       if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (d.caseId && !(await canAccessCase(d.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       if (isClient) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -1545,7 +1579,7 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       return NextResponse.json(updated);
     }
     if (rest[1] === 'check-in' && method === 'POST') {
-      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null }, select: documentSelectBase });
       if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (d.caseId && !(await canAccessCase(d.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       if (isClient) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -1557,14 +1591,14 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       return NextResponse.json(updated);
     }
     if (rest[1] === 'audit-log' && method === 'GET') {
-      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null }, select: documentSelectBase });
       if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (d.caseId && !(await canAccessCase(d.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       const logs = await prisma.documentAuditLog.findMany({ where: { documentId: id }, orderBy: { createdAt: 'desc' }, take: 100 });
       return NextResponse.json({ data: logs });
     }
     if (rest[1] === 'signing-request' && method === 'GET') {
-      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null }, select: documentSelectBase });
       if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (d.caseId && !(await canAccessCase(d.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       const req = await prisma.documentSigningRequest.findFirst({
@@ -1575,7 +1609,7 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
       return NextResponse.json(req ?? { status: 'none', signers: [] });
     }
     if (rest[1] === 'signing-request' && rest[2] === 'sign' && method === 'POST') {
-      const d = await prisma.document.findFirst({ where: { id, deletedAt: null } });
+      const d = await prisma.document.findFirst({ where: { id, deletedAt: null }, select: documentSelectBase });
       if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       const body = await request.json().catch(() => ({}));
       const signerId = body.signerId ?? body.signer_id;
@@ -1611,7 +1645,11 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
     if (method === 'GET') {
       const d = await prisma.document.findFirst({
         where: { id, deletedAt: null },
-        include: { checkedOutByUser: { select: { id: true, name: true, email: true } }, case: { select: { id: true, title: true, caseNumber: true } } },
+        select: {
+          ...documentSelectBase,
+          case: { select: { id: true, title: true, caseNumber: true } as const },
+          checkedOutByUser: { select: { id: true, name: true, email: true } as const },
+        },
       });
       if (!d) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (d.caseId && !(await canAccessCase(d.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -1628,7 +1666,7 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
         ...(Object.keys(caseWhere).length ? { case: { deletedAt: null, ...caseWhere } } : {}),
       },
       take: 100,
-      include: { case: { select: { id: true, title: true, caseNumber: true } }, checkedOutByUser: { select: { id: true, name: true } } },
+      select: documentSelectWithCaseAndCheckedOut,
     });
     return NextResponse.json({ data: list });
   }
