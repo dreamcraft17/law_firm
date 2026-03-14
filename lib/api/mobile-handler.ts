@@ -82,6 +82,34 @@ const invoiceSelect = {
   deletedAt: true,
 } as const;
 
+// TimeEntry select: omit invoice_id until migration is run
+const timeEntrySelectBase = {
+  id: true,
+  caseId: true,
+  taskId: true,
+  userId: true,
+  description: true,
+  hours: true,
+  billable: true,
+  rate: true,
+  approvedAt: true,
+  workDate: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+} as const;
+const timeEntrySelectWithUserTask = {
+  ...timeEntrySelectBase,
+  user: { select: { id: true, name: true } as const },
+  task: { select: { id: true, title: true } as const },
+} as const;
+const timeEntrySelectWithCaseUserTask = {
+  ...timeEntrySelectBase,
+  case: { select: { id: true, title: true } as const },
+  user: { select: { id: true, name: true } as const },
+  task: { select: { id: true, title: true } as const },
+} as const;
+
 function normalizeForConflict(s: string): string {
   return s.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -753,7 +781,7 @@ async function handleMobileTimeEntries(rest: string[], method: string, request: 
           rate,
           workDate: new Date(session.startedAt.toISOString().slice(0, 10)),
         },
-        include: { case: { select: { id: true, title: true } }, task: { select: { id: true, title: true } } },
+        select: { ...timeEntrySelectBase, case: { select: { id: true, title: true } as const }, task: { select: { id: true, title: true } as const } },
       });
       await prisma.timerSession.delete({ where: { id: session.id } });
       return NextResponse.json(entry, { status: 201 });
@@ -775,7 +803,7 @@ async function handleMobileTimeEntries(rest: string[], method: string, request: 
     const list = await prisma.timeEntry.findMany({
       where: { caseId, deletedAt: null },
       orderBy: { workDate: 'desc' },
-      include: { user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
+      select: timeEntrySelectWithUserTask,
     });
     return NextResponse.json({ data: list });
   }
@@ -784,27 +812,27 @@ async function handleMobileTimeEntries(rest: string[], method: string, request: 
   if (id && id !== 'case' && id !== 'timer') {
     // POST /time-entries/:id/approve (partner / admin)
     if (rest[1] === 'approve' && method === 'POST') {
-      const e = await prisma.timeEntry.findFirst({ where: { id, deletedAt: null } });
+      const e = await prisma.timeEntry.findFirst({ where: { id, deletedAt: null }, select: timeEntrySelectBase });
       if (!e) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (!(await canAccessCase(e.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       const updated = await prisma.timeEntry.update({
         where: { id },
         data: { approvedAt: new Date() },
-        include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } } },
+        select: { ...timeEntrySelectBase, case: { select: { id: true, title: true } as const }, user: { select: { id: true, name: true } as const } },
       });
       return NextResponse.json(updated);
     }
     if (method === 'GET') {
       const e = await prisma.timeEntry.findFirst({
         where: { id, deletedAt: null },
-        include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
+        select: timeEntrySelectWithCaseUserTask,
       });
       if (!e) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (!(await canAccessCase(e.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       return NextResponse.json(e);
     }
     if ((method === 'PATCH' || method === 'PUT') && !rest[1]) {
-      const e = await prisma.timeEntry.findFirst({ where: { id, deletedAt: null } });
+      const e = await prisma.timeEntry.findFirst({ where: { id, deletedAt: null }, select: timeEntrySelectBase });
       if (!e) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (e.userId !== userId && !auth.isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       if (!(await canAccessCase(e.caseId, auth))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -819,7 +847,7 @@ async function handleMobileTimeEntries(rest: string[], method: string, request: 
         const updated = await prisma.timeEntry.update({
           where: { id },
           data,
-          include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } } },
+          select: { ...timeEntrySelectBase, case: { select: { id: true, title: true } as const }, user: { select: { id: true, name: true } as const } },
         });
         return NextResponse.json(updated);
       } catch (err) {
@@ -843,7 +871,7 @@ async function handleMobileTimeEntries(rest: string[], method: string, request: 
       where,
       orderBy: { workDate: 'desc' },
       take: 200,
-      include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
+      select: timeEntrySelectWithCaseUserTask,
     });
     return NextResponse.json({ data: list });
   }
@@ -870,7 +898,7 @@ async function handleMobileTimeEntries(rest: string[], method: string, request: 
           rate,
           workDate: body.workDate ? new Date(body.workDate) : new Date(),
         },
-        include: { case: { select: { id: true, title: true } }, user: { select: { id: true, name: true } }, task: { select: { id: true, title: true } } },
+        select: timeEntrySelectWithCaseUserTask,
       });
       return NextResponse.json(e, { status: 201 });
     } catch (e) {
