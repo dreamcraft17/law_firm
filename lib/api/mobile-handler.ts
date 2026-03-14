@@ -52,6 +52,17 @@ const documentSelectWithCaseAndCheckedOut = {
   checkedOutByUser: { select: { id: true, name: true } as const },
 } as const;
 
+// Notification select: omit body until migration is run
+const notificationSelect = {
+  id: true,
+  userId: true,
+  title: true,
+  caseId: true,
+  entityType: true,
+  readAt: true,
+  createdAt: true,
+} as const;
+
 function normalizeForConflict(s: string): string {
   return s.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -1855,7 +1866,10 @@ async function handleNotifications(rest: string[], method: string, request: Next
   }
   const id = rest[0];
   if (id && rest[1] === 'read' && method === 'POST') {
-    const n = await prisma.notification.findFirst({ where: { id, userId: auth.userId } });
+    const n = await prisma.notification.findFirst({
+      where: { id, userId: auth.userId },
+      select: notificationSelect,
+    });
     if (!n) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     await prisma.notification.update({ where: { id }, data: { readAt: new Date() } });
     return NextResponse.json({ message: 'OK' });
@@ -1865,6 +1879,7 @@ async function handleNotifications(rest: string[], method: string, request: Next
       where: { userId: auth.userId },
       take: 50,
       orderBy: { createdAt: 'desc' },
+      select: notificationSelect,
     });
     return NextResponse.json({ data: list });
   }
