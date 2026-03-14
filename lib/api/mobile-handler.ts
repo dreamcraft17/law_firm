@@ -52,13 +52,11 @@ const documentSelectWithCaseAndCheckedOut = {
   checkedOutByUser: { select: { id: true, name: true } as const },
 } as const;
 
-// Notification select: omit body until migration is run
+// Notification select: only columns that exist before migration (body, case_id, entity_type)
 const notificationSelect = {
   id: true,
   userId: true,
   title: true,
-  caseId: true,
-  entityType: true,
   readAt: true,
   createdAt: true,
 } as const;
