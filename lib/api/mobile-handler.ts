@@ -110,6 +110,18 @@ const timeEntrySelectWithCaseUserTask = {
   task: { select: { id: true, title: true } as const },
 } as const;
 
+// CaseMilestone select: omit sla_due_date, escalated_at until migration is run
+const caseMilestoneSelect = {
+  id: true,
+  caseId: true,
+  name: true,
+  dueDate: true,
+  completedAt: true,
+  sortOrder: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 function normalizeForConflict(s: string): string {
   return s.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -1381,7 +1393,11 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
     const allowed = await canAccessCase(id, auth);
     if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     if (method === 'GET') {
-      const list = await prisma.caseMilestone.findMany({ where: { caseId: id }, orderBy: [{ sortOrder: 'asc' }, { dueDate: 'asc' }] });
+      const list = await prisma.caseMilestone.findMany({
+        where: { caseId: id },
+        orderBy: [{ sortOrder: 'asc' }, { dueDate: 'asc' }],
+        select: caseMilestoneSelect,
+      });
       return NextResponse.json({ data: list });
     }
     if (method === 'POST') {
@@ -1395,6 +1411,7 @@ async function handleCases(rest: string[], method: string, request: NextRequest)
             completedAt: body.completedAt ? new Date(body.completedAt) : null,
             sortOrder: Number(body.sortOrder) ?? 0,
           },
+          select: caseMilestoneSelect,
         });
         return NextResponse.json(m, { status: 201 });
       } catch (e) {
