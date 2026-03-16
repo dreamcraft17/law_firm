@@ -1601,8 +1601,12 @@ async function handleDocuments(rest: string[], method: string, request: NextRequ
         request: {
           include: {
             document: {
-              select: { id: true, name: true, caseId: true },
-              include: { case: { select: { id: true, title: true } } },
+              select: {
+                id: true,
+                name: true,
+                caseId: true,
+                case: { select: { id: true, title: true } },
+              },
             },
           },
         },
